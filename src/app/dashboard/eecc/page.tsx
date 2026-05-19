@@ -67,6 +67,7 @@ function fmt(n: number) {
 
 export default function EECCPage() {
   const [dragging, setDragging] = useState(false)
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('')
   const [result, setResult] = useState<EECCResult | null>(null)
@@ -93,6 +94,7 @@ export default function EECCPage() {
     try {
       const formData = new FormData()
       formData.append('file', file)
+      if (password) formData.append('password', password)
       setLoadingMsg('Gemini IA analizando transacciones...')
       const res = await fetch('/api/eecc', { method: 'POST', body: formData })
       const data = await res.json()
@@ -204,6 +206,16 @@ export default function EECCPage() {
             {['BCP', 'Interbank', 'Scotiabank', 'BBVA', 'Amex', 'Visa', 'Mastercard', 'Yape'].map(b => (
               <span key={b} className="px-2.5 py-1 bg-slate-700/50 text-slate-400 text-xs rounded-lg">{b}</span>
             ))}
+          </div>
+          <div className="mt-4 flex items-center gap-2" onClick={e => e.stopPropagation()}>
+            <input
+              type="password"
+              placeholder="Contraseña del PDF (si está protegido)"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-slate-500 placeholder-slate-500"
+            />
+            {password && <span className="text-emerald-400 text-xs">🔑 Clave ingresada</span>}
           </div>
         </div>
       )}
