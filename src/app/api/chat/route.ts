@@ -8,7 +8,7 @@ import { createServiceClient } from '@/lib/supabase'
 function getGemini() {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY no configurada. Ve a aistudio.google.com/app/apikey')
-  return new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-1.5-flash' })
+  return new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' })
 }
 
 function fmt(n) { return new Intl.NumberFormat('es-PE', { minimumFractionDigits: 2 }).format(n || 0) }

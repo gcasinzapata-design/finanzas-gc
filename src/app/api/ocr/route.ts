@@ -7,7 +7,7 @@ import { authOptions } from '@/lib/authOptions'
 function getGemini() {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY no configurada')
-  return new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-1.5-flash' })
+  return new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' })
 }
 
 export async function POST(req) {
