@@ -9,7 +9,6 @@ import { createServiceClient } from '@/lib/supabase'
 function getModel() {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY no configurada')
-  // Default v1beta — supports gemini-1.5-flash + PDF
   return new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-1.5-flash' })
 }
 
@@ -47,32 +46,13 @@ REGLAS CRITICAS:
 - CUENTA DE AHORROS: columna CARGOS/DEBE = gasto | columna ABONOS/HABER = ingreso
 - TARJETA CREDITO: consumos/compras = gasto | pagos a la tarjeta = ingreso
 - Montos SIEMPRE positivos en el JSON
-- Incluye TODAS las filas: comisiones, ITF, transferencias, yapes, plins, haberes
+- Incluye TODAS las filas: comisiones, ITF, transferencias, yapes, plins, haberes, pagos
 - Fechas en formato YYYY-MM-DD usando el año del período del EECC
-- Para "WARDA": es un débito automático de seguros/servicios = gasto, categoría Servicios
-- Para "TRAN.CTAS.TERC.BM": transferencia recibida = ingreso, categoría Otros
-- Para "HABERES": sueldo/ingreso = ingreso, categoría Otros
-- Para "PAG.T.PROP": pago de tarjeta propia = gasto, categoría Deudas
-- Para "PAGCRED EFEC BM": pago de préstamo = gasto, categoría Deudas`
-
-async function tryDecryptPdf(buffer, password) {
-  // Try to use pdfjs-dist to extract text from password-protected PDF
-  try {
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs').catch(() => null)
-    if (!pdfjs) return null
-
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), password }).promise
-    let text = ''
-    for (let i = 1; i <= doc.numPages; i++) {
-      const page = await doc.getPage(i)
-      const content = await page.getTextContent()
-      text += content.items.map(item => item.str).join(' ') + '\n'
-    }
-    return text
-  } catch {
-    return null
-  }
-}
+- WARDA = débito automático seguros/servicios = gasto, categoría Servicios
+- TRAN.CTAS.TERC.BM = transferencia recibida = ingreso
+- HABERES = sueldo = ingreso, categoría Otros
+- PAG.T.PROP / PAGCRED = pago de deuda = gasto, categoría Deudas
+- Yape/Plin enviado = gasto | Yape/Plin recibido = ingreso`
 
 export async function POST(req) {
   const session = await getServerSession(authOptions)
@@ -80,7 +60,7 @@ export async function POST(req) {
 
   const contentType = req.headers.get('content-type') || ''
 
-  // CONFIRM: save transactions
+  // CONFIRM: save transactions (JSON body)
   if (contentType.includes('application/json')) {
     try {
       const body = await req.json()
@@ -108,59 +88,44 @@ export async function POST(req) {
           eecc_import_id: importId || null,
         }, { onConflict: 'user_id,eecc_hash' })
         if (!error) inserted++
-        else { console.error('EECC upsert error:', error.message); skipped++ }
+        else { console.error('EECC upsert error:', error.message, 'type:', type); skipped++ }
       }
-      await supabase.from('eecc_imports').update({
-        status: 'completed', total_inserted: inserted, total_duplicates: skipped,
-      }).eq('id', importId)
+      await supabase.from('eecc_imports')
+        .update({ status: 'completed', total_inserted: inserted, total_duplicates: skipped })
+        .eq('id', importId)
       return NextResponse.json({ success: true, inserted, skipped, message: `${inserted} transacciones importadas` })
     } catch (err) {
       return NextResponse.json({ error: err instanceof Error ? err.message : 'Error' }, { status: 500 })
     }
   }
 
-  // ANALYZE: process file
+  // ANALYZE: process file (FormData)
   try {
     const formData = await req.formData()
     const file = formData.get('file')
     const password = formData.get('password') || ''
-
     if (!file || typeof file === 'string') return NextResponse.json({ error: 'Archivo requerido' }, { status: 400 })
     if (file.size > 20 * 1024 * 1024) return NextResponse.json({ error: 'Archivo supera 20MB' }, { status: 400 })
 
     const buffer = await file.arrayBuffer()
+    const base64 = Buffer.from(buffer).toString('base64')
     const isPDF = file.type?.includes('pdf') || file.name?.toLowerCase().endsWith('.pdf')
-    const model = getModel()
-    let result
+    const mimeType = isPDF ? 'application/pdf' : (file.type || 'image/jpeg')
 
-    if (isPDF && password) {
-      // Try to extract text first for password-protected PDFs
-      const extractedText = await tryDecryptPdf(buffer, password)
-      if (extractedText) {
-        // Send as text prompt
-        result = await model.generateContent(`${PROMPT}\n\nCONTENIDO DEL EECC:\n${extractedText}`)
-      } else {
-        // Fallback: send raw PDF with password note
-        const base64 = Buffer.from(buffer).toString('base64')
-        result = await model.generateContent([
-          { inlineData: { data: base64, mimeType: 'application/pdf' } },
-          PROMPT,
-        ])
-      }
-    } else {
-      // Normal file (no password)
-      const base64 = Buffer.from(buffer).toString('base64')
-      const mimeType = isPDF ? 'application/pdf' : (file.type || 'image/jpeg')
-      result = await model.generateContent([
-        { inlineData: { data: base64, mimeType } },
-        PROMPT,
-      ])
-    }
+    const model = getModel()
+    const promptWithPassword = password
+      ? `${PROMPT}\n\nNota: Si el documento está protegido, la contraseña es: ${password}`
+      : PROMPT
+
+    const result = await model.generateContent([
+      { inlineData: { data: base64, mimeType } },
+      promptWithPassword,
+    ])
 
     const raw = result.response.text().replace(/```json|```/g, '').trim()
     let parsed
     try { parsed = JSON.parse(raw) }
-    catch { return NextResponse.json({ error: 'No pude leer el archivo. Verifica que sea un EECC legible.' }, { status: 422 }) }
+    catch { return NextResponse.json({ error: 'No pude leer el archivo. Verifica que sea un EECC válido y legible.' }, { status: 422 }) }
 
     if (!parsed.transactions?.length) {
       return NextResponse.json({ error: 'No encontré transacciones. ¿Es un estado de cuenta bancario?' }, { status: 422 })
@@ -172,7 +137,13 @@ export async function POST(req) {
     for (const tx of parsed.transactions) {
       const hash = makeHash(userId, tx.date || '', tx.amount || 0, tx.description || '')
       const { data: existing } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('eecc_hash', hash).maybeSingle()
-      enriched.push({ ...tx, hash, duplicate: !!existing, amount: Math.abs(Number(tx.amount) || 0), type: tx.type === 'ingreso' ? 'ingreso' : 'gasto' })
+      enriched.push({
+        ...tx,
+        hash,
+        duplicate: !!existing,
+        amount: Math.abs(Number(tx.amount) || 0),
+        type: tx.type === 'ingreso' ? 'ingreso' : 'gasto',
+      })
     }
 
     const { data: importRecord } = await supabase.from('eecc_imports').insert({
@@ -205,7 +176,7 @@ export async function POST(req) {
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Error'
-    if (msg.includes('quota') || msg.includes('429')) return NextResponse.json({ error: 'Límite Gemini alcanzado. Espera 1 minuto.' }, { status: 429 })
+    if (msg.includes('quota') || msg.includes('429')) return NextResponse.json({ error: 'Límite Gemini. Espera 1 minuto.' }, { status: 429 })
     console.error('EECC error:', msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
