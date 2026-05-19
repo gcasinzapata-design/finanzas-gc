@@ -6,10 +6,13 @@ import { createHash } from 'crypto'
 import { authOptions } from '@/lib/authOptions'
 import { createServiceClient } from '@/lib/supabase'
 
-function getGemini() {
+function getModel() {
   const key = process.env.GEMINI_API_KEY
   if (!key) throw new Error('GEMINI_API_KEY no configurada. Ve a aistudio.google.com/app/apikey')
-  return new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-2.0-flash' })
+  return new GoogleGenerativeAI(key).getGenerativeModel(
+    { model: 'gemini-1.5-flash' },
+    { apiVersion: 'v1' }
+  )
 }
 
 function makeHash(userId, date, amount, description) {
@@ -18,45 +21,44 @@ function makeHash(userId, date, amount, description) {
     .digest('hex')
 }
 
-const PROMPT = `Analiza este Estado de Cuenta (EECC) bancario o de tarjeta de crédito peruano.
-Extrae TODAS las transacciones que encuentres sin omitir ninguna.
+const PROMPT = `Analiza este Estado de Cuenta bancario o de tarjeta de crédito peruano.
+Extrae TODAS las transacciones sin omitir ninguna.
 
-Responde SOLO con JSON válido sin markdown ni explicaciones:
+Responde SOLO con JSON válido sin markdown:
 {
-  "bank": "nombre del banco o entidad emisora",
+  "bank": "nombre del banco",
   "account_type": "cuenta_ahorros|cuenta_corriente|tarjeta_credito|tarjeta_debito",
-  "period": "período del estado (ej: Enero 2025)",
+  "period": "período (ej: Enero 2025)",
   "currency": "PEN" o "USD",
   "opening_balance": número o null,
   "closing_balance": número o null,
   "transactions": [
     {
       "date": "YYYY-MM-DD",
-      "description": "descripción exacta del movimiento tal como aparece",
-      "amount": número positivo (sin signo),
+      "description": "descripción exacta",
+      "amount": número positivo,
       "type": "gasto" o "ingreso",
       "category": "Restaurantes|Supermercados|Alimentación|Transporte|Salud|Entretenimiento|Compras|Servicios|Educación|Vivienda|Suscripciones|Viajes|Deudas|Otros",
-      "merchant": "nombre del comercio si se identifica, sino null",
-      "reference": "número de operación/referencia o null"
+      "merchant": "nombre del comercio o null",
+      "reference": "número de operación o null"
     }
   ]
 }
 
-REGLAS CRÍTICAS:
-- Tarjeta de crédito: consumos/compras = "gasto", pagos/abonos a la tarjeta = "ingreso"
-- Cuenta ahorro/corriente: retiros/débitos/cargos = "gasto", depósitos/créditos/abonos = "ingreso"
-- Montos SIEMPRE positivos — el tipo determina si es entrada o salida
-- Si aparece entre paréntesis o con signo negativo en el EECC → "gasto"
-- Incluye TODAS las filas de movimientos, incluyendo comisiones, intereses, ITF
-- Fecha formato YYYY-MM-DD. Si solo hay día/mes, deduce el año del período del EECC`
+REGLAS:
+- Tarjeta: consumos = gasto, pagos a la tarjeta = ingreso
+- Cuenta: retiros/débitos/cargos = gasto, depósitos/créditos = ingreso
+- Montos SIEMPRE positivos
+- Incluye comisiones, intereses, ITF
+- Si el monto aparece entre paréntesis = gasto`
 
-export async function POST(req: NextRequest) {
+export async function POST(req) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const contentType = req.headers.get('content-type') || ''
 
-  // ── CONFIRMAR importación (JSON body) ─────────────────────────────────────
+  // CONFIRM: save transactions (JSON body)
   if (contentType.includes('application/json')) {
     try {
       const body = await req.json()
@@ -86,35 +88,31 @@ export async function POST(req: NextRequest) {
         }, { onConflict: 'user_id,eecc_hash' })
 
         if (!error) inserted++
-        else { console.error(error.message); skipped++ }
+        else { console.error('EECC insert error:', error.message); skipped++ }
       }
 
-      await supabase.from('eecc_imports')
-        .update({ status: 'completed', total_inserted: inserted, total_duplicates: skipped })
-        .eq('id', importId)
+      await supabase.from('eecc_imports').update({
+        status: 'completed', total_inserted: inserted, total_duplicates: skipped,
+      }).eq('id', importId)
 
-      return NextResponse.json({
-        success: true, inserted, skipped,
-        message: `✅ ${inserted} transacciones importadas`,
-      })
+      return NextResponse.json({ success: true, inserted, skipped, message: `${inserted} transacciones importadas` })
     } catch (err) {
       return NextResponse.json({ error: err instanceof Error ? err.message : 'Error' }, { status: 500 })
     }
   }
 
-  // ── ANALIZAR archivo (FormData) ────────────────────────────────────────────
+  // ANALYZE: process file (FormData)
   try {
     const formData = await req.formData()
     const file = formData.get('file')
     if (!file || typeof file === 'string') return NextResponse.json({ error: 'Archivo requerido' }, { status: 400 })
-
-    if (file.size > 20 * 1024 * 1024) return NextResponse.json({ error: 'El archivo no puede superar 20MB' }, { status: 400 })
+    if (file.size > 20 * 1024 * 1024) return NextResponse.json({ error: 'Archivo supera 20MB' }, { status: 400 })
 
     const buffer = await file.arrayBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
     const mimeType = file.type?.includes('pdf') ? 'application/pdf' : (file.type || 'image/jpeg')
 
-    const model = getGemini()
+    const model = getModel()
     const result = await model.generateContent([
       { inlineData: { data: base64, mimeType } },
       PROMPT,
@@ -123,16 +121,10 @@ export async function POST(req: NextRequest) {
     const raw = result.response.text().replace(/```json|```/g, '').trim()
     let parsed
     try { parsed = JSON.parse(raw) }
-    catch {
-      return NextResponse.json({
-        error: 'No pude leer el archivo. Intenta con una imagen más clara o verifica que sea un EECC válido.',
-      }, { status: 422 })
-    }
+    catch { return NextResponse.json({ error: 'No pude leer el archivo. Verifica que sea un EECC legible y no protegido.' }, { status: 422 }) }
 
     if (!parsed.transactions?.length) {
-      return NextResponse.json({
-        error: 'No encontré transacciones en este archivo. ¿Es un estado de cuenta bancario?',
-      }, { status: 422 })
+      return NextResponse.json({ error: 'No encontré transacciones. ¿Es un estado de cuenta bancario?' }, { status: 422 })
     }
 
     const supabase = createServiceClient()
@@ -173,15 +165,15 @@ export async function POST(req: NextRequest) {
         total: enriched.length,
         new: newTx.length,
         duplicates: dupTx.length,
-        gastos: newTx.filter(t => t.type === 'gasto').length,
-        ingresos: newTx.filter(t => t.type === 'ingreso').length,
         total_gastos: enriched.filter(t => t.type === 'gasto').reduce((s, t) => s + t.amount, 0),
         total_ingresos: enriched.filter(t => t.type === 'ingreso').reduce((s, t) => s + t.amount, 0),
       },
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Error'
-    console.error('EECC error:', msg)
+    if (msg.includes('quota') || msg.includes('429')) {
+      return NextResponse.json({ error: 'Límite de Gemini alcanzado. Espera 1 minuto e intenta de nuevo.' }, { status: 429 })
+    }
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
@@ -190,8 +182,7 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
   const supabase = createServiceClient()
-  const { data } = await supabase.from('eecc_imports')
-    .select('*').eq('user_id', session.user.id)
-    .order('created_at', { ascending: false }).limit(20)
+  const { data } = await supabase.from('eecc_imports').select('*')
+    .eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(20)
   return NextResponse.json({ imports: data || [] })
 }

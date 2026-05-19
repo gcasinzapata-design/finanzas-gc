@@ -185,43 +185,35 @@ export default function ChatPage() {
         )}
 
         {mode === 'registro' && nlpResult && (
-          <div className={`rounded-2xl p-5 border ${nlpResult.error ? 'bg-rose-500/10 border-rose-500/20' : 'bg-emerald-500/10 border-emerald-500/20'}`}>
-            {nlpResult.error ? (
-              <div className="flex items-start gap-2">
-                <X className="w-4 h-4 text-rose-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="text-rose-300 font-semibold text-sm">{nlpResult.error}</p>
-                  {nlpResult.suggestion && <p className="text-rose-400/70 text-xs mt-1">{nlpResult.suggestion}</p>}
-                </div>
-              </div>
-            ) : (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  <p className="text-emerald-300 font-semibold text-sm">¡Registrado!</p>
-                </div>
-                {parsed && (
-                  <div className="grid grid-cols-2 gap-2 text-xs mb-4">
-                    {[
-                      ['Tipo', parsed.type === 'ingreso' ? '📈 Ingreso' : '📉 Gasto'],
-                      ['Monto', `S/ ${fmt(parsed.amount)}`],
-                      ['Categoría', parsed.category],
-                      ['Comercio', parsed.merchant || '—'],
-                      ['Medio pago', parsed.payment_method || parsed.payment_type || '—'],
-                      ['Fecha', parsed.date ? new Date(parsed.date).toLocaleDateString('es-PE') : 'Hoy'],
-                    ].map(([k, v]) => v && (
-                      <div key={k as string} className="bg-black/20 rounded-lg p-2">
-                        <span className="text-slate-400 block">{k}</span>
-                        <span className="text-white font-medium">{v as string}</span>
-                      </div>
-                    ))}
+          <div className="space-y-3">
+            {/* Assistant bubble */}
+            <div className="flex justify-start">
+              <div className={`max-w-[90%] rounded-2xl px-4 py-3 border ${nlpResult.error ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-800 border-slate-700'}`}>
+                {nlpResult.error ? (
+                  <div>
+                    <p className="text-rose-300 text-sm font-medium">❌ {nlpResult.error}</p>
+                    {nlpResult.suggestion && <p className="text-rose-400/70 text-xs mt-1">{nlpResult.suggestion}</p>}
                   </div>
+                ) : parsed ? (
+                  <div>
+                    <p className="text-emerald-400 text-sm font-semibold mb-2">✅ ¡Listo! Registré tu {parsed.type}:</p>
+                    <div className="text-slate-200 text-sm space-y-1">
+                      <p>💰 <span className="font-bold">{parsed.currency === 'USD' ? '$' : 'S/'} {fmt(parsed.amount)}</span>{parsed.merchant ? ` en ${parsed.merchant}` : ''}</p>
+                      <p>🏷️ Categoría: <span className="text-slate-300">{parsed.category}</span></p>
+                      {(parsed.payment_method || parsed.payment_type) && (
+                        <p>💳 Medio: <span className="text-slate-300">{parsed.payment_method || parsed.payment_type}</span></p>
+                      )}
+                      <p>📅 Fecha: <span className="text-slate-300">{parsed.date ? new Date(parsed.date).toLocaleDateString('es-PE', {day:'numeric',month:'long'}) : 'Hoy'}</span></p>
+                    </div>
+                    <button onClick={() => setNlpResult(null)} className="text-emerald-400 text-xs mt-3 hover:underline block">
+                      + Registrar otro gasto
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-slate-300 text-sm">{nlpResult.message || 'Registrado'}</p>
                 )}
-                <button onClick={() => setNlpResult(null)} className="text-emerald-400 text-xs hover:underline">
-                  + Registrar otro
-                </button>
               </div>
-            )}
+            </div>
           </div>
         )}
 

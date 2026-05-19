@@ -126,7 +126,7 @@ export async function POST(_req) {
 
         const category = categorizeTransaction(parsed.description, parsed.merchant)
 
-        const { error } = await supabase.from('transactions').upsert({
+        const { error } = await supabase.from('transactions').insert({
           user_id: userId,
           bank: parsed.bank,
           amount: parsed.amount,
@@ -139,7 +139,7 @@ export async function POST(_req) {
           source: 'gmail',
           raw_text: subject.slice(0, 200),
           gmail_message_id: msgId,
-        }, { onConflict: 'gmail_message_id' })
+        })
 
         if (!error) inserted++; else skipped++
       } catch { skipped++; continue }
