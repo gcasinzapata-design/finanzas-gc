@@ -12,6 +12,8 @@ export function calculateWeightedInterest(
     0
   )
 
+  if (!totalDebt) return 0
+
   const weightedInterest = debts.reduce(
     (sum, debt) => {
       return sum + debt.balance * debt.tea
