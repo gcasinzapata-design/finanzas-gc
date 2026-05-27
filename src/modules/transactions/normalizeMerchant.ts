@@ -1,4 +1,5 @@
-export function normalizeMerchant(merchant: string) {
+export function normalizeMerchant(merchant: string | null | undefined): string {
+  if (!merchant) return ''
   return merchant
     .toUpperCase()
     .replace(/DLC\*/g, '')
