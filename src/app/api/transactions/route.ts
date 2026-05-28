@@ -7,11 +7,36 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
   const { searchParams } = new URL(req.url)
-  const limit = parseInt(searchParams.get('limit') || '100')
+  const limit = parseInt(searchParams.get('limit') || '500')
+  const month = searchParams.get('month') // YYYY-MM
+  const category = searchParams.get('category')
+  const currency = searchParams.get('currency') || 'PEN'
+  const type = searchParams.get('type')
+  const recurring = searchParams.get('recurring')
+  const source = searchParams.get('source') // 'eecc' | 'gmail' | null (all)
   const supabase = createServiceClient()
-  const { data, error } = await supabase.from('transactions').select('*').eq('user_id', session.user.id).order('date', { ascending: false }).limit(limit)
+
+  let query = supabase
+    .from('transactions')
+    .select('id,bank,amount,currency,type,category,description,merchant,date,source,is_recurring,recurring_label,created_at')
+    .eq('user_id', session.user.id)
+    .eq('currency', currency)
+    .order('date', { ascending: false })
+    .limit(limit)
+
+  if (month) {
+    const start = `${month}-01`
+    const end = new Date(parseInt(month.slice(0,4)), parseInt(month.slice(5,7)), 0).toISOString().slice(0,10)
+    query = query.gte('date', start).lte('date', end)
+  }
+  if (category) query = query.eq('category', category)
+  if (type) query = query.eq('type', type)
+  if (recurring === 'true') query = query.eq('is_recurring', true)
+  if (source) query = query.eq('source', source)
+
+  const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ transactions: data || [] })
+  return NextResponse.json({ transactions: data || [], total: data?.length || 0 })
 }
 
 export async function POST(req: NextRequest) {
