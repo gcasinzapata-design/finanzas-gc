@@ -1,16 +1,10 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import Anthropic from '@anthropic-ai/sdk'
 import { createHash } from 'crypto'
 import { authOptions } from '@/lib/authOptions'
 import { createServiceClient } from '@/lib/supabase'
-
-function getModel() {
-  const key = process.env.GEMINI_API_KEY
-  if (!key) throw new Error('GEMINI_API_KEY no configurada')
-  return new GoogleGenerativeAI(key).getGenerativeModel({ model: 'gemini-1.5-flash' })
-}
 
 function makeHash(userId, date, amount, description) {
   return createHash('md5')
@@ -24,7 +18,7 @@ Extrae TODAS las transacciones sin omitir ninguna.
 Responde SOLO con JSON válido sin markdown:
 {
   "bank": "nombre del banco",
-  "account_type": "cuenta_ahorros|cuenta_corriente|tarjeta_credito|tarjeta_debito",
+  "account_type": "cuenta_ahorros|tarjeta_credito",
   "period": "período (ej: Abril 2026)",
   "currency": "PEN" o "USD",
   "opening_balance": número o null,
@@ -32,27 +26,23 @@ Responde SOLO con JSON válido sin markdown:
   "transactions": [
     {
       "date": "YYYY-MM-DD",
-      "description": "descripción exacta del movimiento",
+      "description": "descripción exacta",
       "amount": número positivo,
       "type": "gasto" o "ingreso",
-      "category": "Restaurantes|Supermercados|Alimentación|Transporte|Salud|Entretenimiento|Compras|Servicios|Educación|Vivienda|Suscripciones|Viajes|Deudas|Otros",
-      "merchant": "nombre del comercio o null",
-      "reference": "número de operación o null"
+      "category": "Restaurantes|Supermercados|Transporte|Salud|Entretenimiento|Compras|Servicios|Educación|Suscripciones|Viajes|Deudas|Seguros|Delivery|Alquiler|Otros",
+      "merchant": "nombre del comercio o null"
     }
   ]
 }
 
-REGLAS CRITICAS:
-- CUENTA DE AHORROS: columna CARGOS/DEBE = gasto | columna ABONOS/HABER = ingreso
-- TARJETA CREDITO: consumos/compras = gasto | pagos a la tarjeta = ingreso
-- Montos SIEMPRE positivos en el JSON
-- Incluye TODAS las filas: comisiones, ITF, transferencias, yapes, plins, haberes, pagos
-- Fechas en formato YYYY-MM-DD usando el año del período del EECC
-- WARDA = débito automático seguros/servicios = gasto, categoría Servicios
-- TRAN.CTAS.TERC.BM = transferencia recibida = ingreso
-- HABERES = sueldo = ingreso, categoría Otros
-- PAG.T.PROP / PAGCRED = pago de deuda = gasto, categoría Deudas
-- Yape/Plin enviado = gasto | Yape/Plin recibido = ingreso`
+REGLAS:
+- CUENTA AHORROS: CARGOS/DEBE = gasto | ABONOS/HABER = ingreso
+- TARJETA CREDITO: CONSUMO = gasto | PAGO = ingreso (transferencia)
+- Montos SIEMPRE positivos
+- WARDA = seguros = gasto, categoría Seguros
+- HABERES/SUELDO = ingreso, categoría Sueldo
+- PAG.T.PROP / PAGCRED = pago deuda = gasto, categoría Deudas
+- Yape enviado = gasto | Yape recibido = ingreso`
 
 export async function POST(req) {
   const session = await getServerSession(authOptions)
@@ -60,7 +50,6 @@ export async function POST(req) {
 
   const contentType = req.headers.get('content-type') || ''
 
-  // CONFIRM: save transactions (JSON body)
   if (contentType.includes('application/json')) {
     try {
       const body = await req.json()
@@ -71,24 +60,22 @@ export async function POST(req) {
       let inserted = 0, skipped = 0
       for (const tx of transactions) {
         if (tx.skip || tx.duplicate) { skipped++; continue }
-        const type = tx.type === 'ingreso' ? 'ingreso' : 'gasto'
         const { error } = await supabase.from('transactions').upsert({
           user_id: userId,
           bank: bank || 'Banco',
           amount: Math.abs(Number(tx.amount) || 0),
           currency: currency || 'PEN',
-          type,
+          type: tx.type === 'ingreso' ? 'ingreso' : 'gasto',
           category: tx.category || 'Otros',
           description: tx.description || '',
           merchant: tx.merchant || null,
           date: tx.date ? new Date(tx.date + 'T12:00:00').toISOString() : new Date().toISOString(),
           source: 'eecc',
-          raw_text: tx.description?.slice(0, 200),
           eecc_hash: tx.hash,
           eecc_import_id: importId || null,
         }, { onConflict: 'user_id,eecc_hash' })
         if (!error) inserted++
-        else { console.error('EECC upsert error:', error.message, 'type:', type); skipped++ }
+        else skipped++
       }
       await supabase.from('eecc_imports')
         .update({ status: 'completed', total_inserted: inserted, total_duplicates: skipped })
@@ -99,7 +86,6 @@ export async function POST(req) {
     }
   }
 
-  // ANALYZE: process file (FormData)
   try {
     const formData = await req.formData()
     const file = formData.get('file')
@@ -107,28 +93,38 @@ export async function POST(req) {
     if (!file || typeof file === 'string') return NextResponse.json({ error: 'Archivo requerido' }, { status: 400 })
     if (file.size > 20 * 1024 * 1024) return NextResponse.json({ error: 'Archivo supera 20MB' }, { status: 400 })
 
+    const key = process.env.ANTHROPIC_API_KEY
+    if (!key) return NextResponse.json({ error: 'Falta ANTHROPIC_API_KEY' }, { status: 500 })
+
     const buffer = await file.arrayBuffer()
     const base64 = Buffer.from(buffer).toString('base64')
     const isPDF = file.type?.includes('pdf') || file.name?.toLowerCase().endsWith('.pdf')
     const mimeType = isPDF ? 'application/pdf' : (file.type || 'image/jpeg')
 
-    const model = getModel()
-    const promptWithPassword = password
-      ? `${PROMPT}\n\nNota: Si el documento está protegido, la contraseña es: ${password}`
+    const client = new Anthropic({ apiKey: key })
+    const promptFinal = password
+      ? `${PROMPT}\n\nNota: La contraseña del PDF es: ${password}`
       : PROMPT
 
-    const result = await model.generateContent([
-      { inlineData: { data: base64, mimeType } },
-      promptWithPassword,
-    ])
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 4000,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: promptFinal }
+        ]
+      }]
+    })
 
-    const raw = result.response.text().replace(/```json|```/g, '').trim()
+    const raw = response.content[0]?.text?.replace(/```json|```/g, '').trim() || ''
     let parsed
     try { parsed = JSON.parse(raw) }
-    catch { return NextResponse.json({ error: 'No pude leer el archivo. Verifica que sea un EECC válido y legible.' }, { status: 422 }) }
+    catch { return NextResponse.json({ error: 'No pude leer el archivo. Verifica que sea un EECC válido.' }, { status: 422 }) }
 
     if (!parsed.transactions?.length) {
-      return NextResponse.json({ error: 'No encontré transacciones. ¿Es un estado de cuenta bancario?' }, { status: 422 })
+      return NextResponse.json({ error: 'No encontré transacciones en el documento.' }, { status: 422 })
     }
 
     const supabase = createServiceClient()
@@ -155,7 +151,6 @@ export async function POST(req) {
       status: 'pending',
     }).select().single()
 
-    const newTx = enriched.filter(t => !t.duplicate)
     return NextResponse.json({
       success: true,
       importId: importRecord?.id,
@@ -168,7 +163,7 @@ export async function POST(req) {
       transactions: enriched,
       summary: {
         total: enriched.length,
-        new: newTx.length,
+        new: enriched.filter(t => !t.duplicate).length,
         duplicates: enriched.filter(t => t.duplicate).length,
         total_gastos: enriched.filter(t => t.type === 'gasto').reduce((s, t) => s + t.amount, 0),
         total_ingresos: enriched.filter(t => t.type === 'ingreso').reduce((s, t) => s + t.amount, 0),
@@ -176,7 +171,6 @@ export async function POST(req) {
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Error'
-    if (msg.includes('quota') || msg.includes('429')) return NextResponse.json({ error: 'Límite Gemini. Espera 1 minuto.' }, { status: 429 })
     console.error('EECC error:', msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
