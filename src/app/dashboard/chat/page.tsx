@@ -1,262 +1,155 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
-import { Send, Zap, Brain, Check, X, ChevronDown } from 'lucide-react'
+import { Send, Bot, User, Sparkles, TrendingDown, CreditCard, PiggyBank, BarChart3, Zap, RefreshCw } from 'lucide-react'
 
 interface Message { role: 'user' | 'assistant'; content: string }
 
-const NLP_EXAMPLES = [
-  'Yape a Priscila S/60 almuerzo',
-  'Hoy me pagaron sueldo S/8000',
-  'Taxi a Miraflores S/25 efectivo',
-  'Netflix cobró S/40.9 tarjeta débito',
-  'Pagué luz Enel S/85 Yape',
+const QUICK_PROMPTS = [
+  { icon: '🔴', label: 'Estrategia de deudas', q: 'Qué estrategia me conviene para eliminar mis deudas más rápido? Muéstrame avalancha vs bola de nieve con números exactos y cuántos meses tardaría en cada estrategia.' },
+  { icon: '💳', label: 'Plan de tarjetas', q: 'Dame un plan específico: en qué tarjeta debo pagar qué tipo de compras, cuánto pagar en cada una este mes, y cómo reducir los intereses.' },
+  { icon: '📉', label: 'Optimizar gastos', q: 'Analiza mis gastos históricos y dime en qué categorías estoy gastando más de lo necesario. Dame 3 acciones concretas para reducir gastos.' },
+  { icon: '💰', label: 'Flujo de caja', q: 'Con mi sueldo y compromisos actuales, cuánta liquidez real tengo disponible al mes? Estoy en riesgo de déficit?' },
+  { icon: '🎯', label: 'Resumen ejecutivo', q: 'Dame un resumen ejecutivo de mi situación financiera: semáforo (rojo/amarillo/verde) por área, los 3 problemas más urgentes y las 3 acciones inmediatas.' },
+  { icon: '📊', label: 'Proyección 12 meses', q: 'Si sigo pagando igual, cómo estará mi deuda total en 12 meses? Muéstrame mes a mes con las deudas que se cancelarían primero.' },
+  { icon: '🚨', label: 'BBVA sin datos', q: 'No tengo el EECC del BBVA Mastercard Black cargado. Cómo debería priorizar esa tarjeta en mi estrategia sabiendo que tiene TCEA 69.99%?' },
+  { icon: '🏦', label: 'BCP vs IBK', q: 'Comparando mis préstamos BCP Grande (TEA 13.5%) vs IBK Visa Access (TEA 11.22%), cuál debería liquidar primero? Muéstrame el ahorro en intereses.' },
 ]
 
-const ADVISOR_PROMPTS = [
-  { label: '🔴 Avalancha o bola de nieve?', q: 'Qué estrategia me conviene para eliminar mis deudas, avalancha o bola de nieve? Muéstrame los números exactos de cada una.' },
-  { label: '💳 Optimizar mis tarjetas', q: 'En qué tarjeta debo hacer qué tipo de compras? Cuánto debo pagar en cada una este mes? Dame un plan específico.' },
-  { label: '💰 Cuánta liquidez mantener?', q: 'Cuánto efectivo/saldo debería mantener disponible dado mi flujo actual? Tengo fondo de emergencia suficiente?' },
-  { label: '📉 Dónde puedo ahorrar?', q: 'Analiza mis gastos y dime en qué categorías estoy gastando de más. Qué podría reducir sin afectar mi calidad de vida?' },
-  { label: '🎯 Son alcanzables mis objetivos?', q: 'Con mi situación actual, puedo alcanzar mis objetivos financieros? Qué debería priorizar primero?' },
-  { label: '📊 Resumen ejecutivo', q: 'Dame un resumen ejecutivo de mi situación financiera: fortalezas, debilidades y las 3 acciones más urgentes.' },
-]
+function MessageBubble({ msg }: { msg: Message }) {
+  const isUser = msg.role === 'user'
+  const lines = msg.content.split('\n').filter(l => l.trim())
 
-function fmt(n: number) {
-  return new Intl.NumberFormat('es-PE', { minimumFractionDigits: 2 }).format(n || 0)
+  return (
+    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-blue-600' : 'bg-gradient-to-br from-purple-600 to-blue-600'}`}>
+        {isUser ? <User size={14} className="text-white"/> : <Sparkles size={14} className="text-white"/>}
+      </div>
+      <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${isUser ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-tl-sm'}`}>
+        <div className={`text-sm space-y-1.5 ${isUser ? 'text-white' : 'text-gray-800 dark:text-gray-200'}`}>
+          {lines.map((line, i) => {
+            if (line.startsWith('##')) return <p key={i} className="font-bold text-base mt-2 first:mt-0">{line.replace(/^#+\s/, '')}</p>
+            if (line.startsWith('**') && line.endsWith('**')) return <p key={i} className="font-semibold">{line.slice(2, -2)}</p>
+            if (line.startsWith('- ') || line.startsWith('• ')) return <p key={i} className="pl-2">{line}</p>
+            if (line.match(/^\d+\./)) return <p key={i} className="pl-2">{line}</p>
+            return <p key={i}>{line}</p>
+          })}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [mode, setMode] = useState<'registro' | 'chat'>('chat')
-  const [nlpResult, setNlpResult] = useState<any>(null)
-  const [showAll, setShowAll] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, nlpResult, loading])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
 
-  async function sendNLP(text: string) {
-    setLoading(true)
-    setNlpResult(null)
-    try {
-      const res = await fetch('/api/nlp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-      setNlpResult(await res.json())
-    } catch {
-      setNlpResult({ error: 'Error de conexión' })
-    }
-    setLoading(false)
-  }
-
-  async function sendChat(text: string) {
-    const updated: Message[] = [...messages, { role: 'user', content: text }]
-    setMessages(updated)
+  async function sendMessage(text?: string) {
+    const content = text || input.trim()
+    if (!content || loading) return
+    setInput('')
+    const newMessages: Message[] = [...messages, { role: 'user', content }]
+    setMessages(newMessages)
     setLoading(true)
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: updated }),
+        body: JSON.stringify({ messages: newMessages }),
       })
       const data = await res.json()
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply || data.error || 'Error al responder' }])
+      setMessages([...newMessages, { role: 'assistant', content: data.reply || 'Sin respuesta' }])
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error de conexión' }])
+      setMessages([...newMessages, { role: 'assistant', content: '❌ Error de conexión. Intenta de nuevo.' }])
     }
     setLoading(false)
+    setTimeout(() => inputRef.current?.focus(), 100)
   }
-
-  function send() {
-    const text = input.trim()
-    if (!text || loading) return
-    setInput('')
-    if (mode === 'registro') sendNLP(text)
-    else sendChat(text)
-  }
-
-  function handleKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      send()
-    }
-  }
-
-  const visiblePrompts = showAll ? ADVISOR_PROMPTS : ADVISOR_PROMPTS.slice(0, 4)
-  const parsed = nlpResult?.parsed
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <div className="flex flex-col h-[calc(100vh-2rem)] max-w-3xl mx-auto p-4">
+
       {/* Header */}
-      <div className="p-4 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-white font-bold text-lg">Copiloto Financiero IA</h1>
-            <p className="text-slate-400 text-xs">Asesor personal · Registro rápido · Gratis con Gemini</p>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center">
+            <Sparkles size={18} className="text-white"/>
           </div>
-          <div className="flex bg-slate-800 rounded-xl p-1 gap-1">
-            <button
-              onClick={() => { setMode('chat'); setNlpResult(null) }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${mode === 'chat' ? 'bg-blue-500 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-            >
-              <Brain className="w-3.5 h-3.5" /> Asesor IA
-            </button>
-            <button
-              onClick={() => { setMode('registro'); setNlpResult(null) }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${mode === 'registro' ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-            >
-              <Zap className="w-3.5 h-3.5" /> Registro rápido
-            </button>
+          <div>
+            <h1 className="font-bold text-gray-900 dark:text-white">Copiloto Financiero IA</h1>
+            <p className="text-xs text-gray-500 flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"/>
+              Powered by Claude · Datos EECC actualizados
+            </p>
           </div>
         </div>
+        {messages.length > 0 && (
+          <button onClick={() => setMessages([])} className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+            <RefreshCw size={12}/> Nueva conversación
+          </button>
+        )}
       </div>
 
-      {/* Messages area */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }} className="space-y-4">
-        {/* Asesor prompts */}
-        {mode === 'chat' && messages.length === 0 && (
+      {/* Área de mensajes */}
+      <div className="flex-1 overflow-y-auto space-y-4 pb-4">
+
+        {messages.length === 0 && (
           <div className="space-y-4">
-            <div className="bg-gradient-to-br from-blue-500/10 to-purple-500/10 border border-blue-500/20 rounded-2xl p-5">
-              <div className="flex items-center gap-2 mb-2">
-                <Brain className="w-5 h-5 text-blue-400" />
-                <h3 className="text-white font-bold">Tu asesor financiero personal</h3>
-              </div>
-              <p className="text-slate-300 text-sm">Analiza tu situación real: deudas, tarjetas, gastos. Te da estrategias con números exactos.</p>
+            <div className="bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl p-5 border border-blue-100 dark:border-blue-800">
+              <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-1">👋 Hola Gian Carlo</p>
+              <p className="text-sm text-blue-700 dark:text-blue-400">
+                Soy tu copiloto financiero. Tengo acceso a todos tus movimientos EECC (Feb–Abr 2026), 
+                tus tarjetas y préstamos activos. Puedo ayudarte a diseñar estrategias de pago, 
+                analizar gastos y proyectar tu situación financiera.
+              </p>
             </div>
-            <div>
-              <p className="text-slate-400 text-xs font-medium mb-2">PREGUNTAS FRECUENTES</p>
-              <div className="space-y-2">
-                {visiblePrompts.map(({ label, q }) => (
-                  <button
-                    key={label}
-                    onClick={() => setInput(q)}
-                    className="w-full text-left px-4 py-3 bg-slate-900 hover:bg-slate-800 border border-slate-700/50 hover:border-slate-600 rounded-xl text-slate-300 text-sm transition-colors"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={() => setShowAll(!showAll)}
-                className="w-full mt-2 py-2 text-slate-500 text-xs hover:text-slate-300 flex items-center justify-center gap-1"
-              >
-                <ChevronDown className={`w-3 h-3 transition-transform ${showAll ? 'rotate-180' : ''}`} />
-                {showAll ? 'Ver menos' : 'Ver más preguntas'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Chat messages */}
-        {mode === 'chat' && messages.map((m, i) => (
-          <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[90%] rounded-2xl px-4 py-3 ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-700 text-slate-200'}`}>
-              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">{m.content}</pre>
-            </div>
-          </div>
-        ))}
-
-        {/* Registro NLP */}
-        {mode === 'registro' && !nlpResult && (
-          <div className="bg-slate-900 border border-emerald-500/20 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <Zap className="w-4 h-4 text-emerald-400" />
-              <h3 className="text-white font-semibold text-sm">Registro en lenguaje natural</h3>
-            </div>
-            <p className="text-slate-400 text-sm mb-4">Escribe cualquier gasto o ingreso como hablarías:</p>
-            <div className="space-y-2">
-              {NLP_EXAMPLES.map(ex => (
-                <button
-                  key={ex}
-                  onClick={() => setInput(ex)}
-                  className="block w-full text-left px-3 py-2 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 rounded-lg text-slate-300 text-sm transition-colors"
-                >
-                  &quot;{ex}&quot;
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wide px-1">Preguntas frecuentes</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {QUICK_PROMPTS.map((p, i) => (
+                <button key={i} onClick={() => sendMessage(p.q)}
+                  className="flex items-start gap-2.5 p-3 text-left bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-gray-700 rounded-xl border border-gray-100 dark:border-gray-700 transition-colors group">
+                  <span className="text-base flex-shrink-0 mt-0.5">{p.icon}</span>
+                  <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-blue-700 dark:group-hover:text-blue-400 font-medium">{p.label}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        {mode === 'registro' && nlpResult && (
-          <div className="space-y-3">
-            {/* Assistant bubble */}
-            <div className="flex justify-start">
-              <div className={`max-w-[90%] rounded-2xl px-4 py-3 border ${nlpResult.error ? 'bg-rose-500/10 border-rose-500/20' : 'bg-slate-800 border-slate-700'}`}>
-                {nlpResult.error ? (
-                  <div>
-                    <p className="text-rose-300 text-sm font-medium">❌ {nlpResult.error}</p>
-                    {nlpResult.suggestion && <p className="text-rose-400/70 text-xs mt-1">{nlpResult.suggestion}</p>}
-                  </div>
-                ) : parsed ? (
-                  <div>
-                    <p className="text-emerald-400 text-sm font-semibold mb-2">✅ ¡Listo! Registré tu {parsed.type}:</p>
-                    <div className="text-slate-200 text-sm space-y-1">
-                      <p>💰 <span className="font-bold">{parsed.currency === 'USD' ? '$' : 'S/'} {fmt(parsed.amount)}</span>{parsed.merchant ? ` en ${parsed.merchant}` : ''}</p>
-                      <p>🏷️ Categoría: <span className="text-slate-300">{parsed.category}</span></p>
-                      {(parsed.payment_method || parsed.payment_type) && (
-                        <p>💳 Medio: <span className="text-slate-300">{parsed.payment_method || parsed.payment_type}</span></p>
-                      )}
-                      <p>📅 Fecha: <span className="text-slate-300">{parsed.date ? new Date(parsed.date).toLocaleDateString('es-PE', {day:'numeric',month:'long'}) : 'Hoy'}</span></p>
-                    </div>
-                    <button onClick={() => setNlpResult(null)} className="text-emerald-400 text-xs mt-3 hover:underline block">
-                      + Registrar otro gasto
-                    </button>
-                  </div>
-                ) : (
-                  <p className="text-slate-300 text-sm">{nlpResult.message || 'Registrado'}</p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+        {messages.map((msg, i) => <MessageBubble key={i} msg={msg}/>)}
 
         {loading && (
-          <div className={`flex ${mode === 'registro' ? 'justify-center' : 'justify-start'}`}>
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl px-4 py-3 flex items-center gap-2">
-              <div className="flex gap-1">
-                {[0, 1, 2].map(i => (
-                  <div key={i} className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />
-                ))}
+          <div className="flex gap-3">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center flex-shrink-0">
+              <Sparkles size={14} className="text-white animate-pulse"/>
+            </div>
+            <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl rounded-tl-sm px-4 py-3">
+              <div className="flex gap-1 items-center h-5">
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}/>
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}/>
+                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}/>
               </div>
-              <span className="text-slate-400 text-xs">{mode === 'registro' ? 'Procesando...' : 'Analizando...'}</span>
             </div>
           </div>
         )}
-
-        <div ref={endRef} />
+        <div ref={endRef}/>
       </div>
 
-      {/* Input — FIXED at bottom */}
-      <div className="flex-shrink-0 p-4 border-t border-slate-800 bg-slate-900">
-        {mode === 'chat' && messages.length > 0 && (
-          <button onClick={() => setMessages([])} className="text-slate-500 text-xs hover:text-slate-300 mb-2 block">
-            ← Nueva consulta
-          </button>
-        )}
-        <div className="flex gap-3 items-center">
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={handleKey}
-            placeholder={mode === 'registro' ? 'Yape a Juan S/50 almuerzo...' : 'Pregunta sobre tus finanzas...'}
-            className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-slate-200 text-sm focus:outline-none focus:border-blue-500 placeholder-slate-500"
-          />
-          <button
-            onClick={send}
-            disabled={loading || !input.trim()}
-            className={`flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center text-white transition-colors disabled:opacity-40 ${mode === 'registro' ? 'bg-emerald-500 hover:bg-emerald-400' : 'bg-blue-500 hover:bg-blue-400'}`}
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
+      {/* Input */}
+      <div className="flex gap-2 pt-3 border-t border-gray-100 dark:border-gray-700">
+        <input ref={inputRef} type="text" value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
+          placeholder="Pregunta sobre tus finanzas..."
+          className="flex-1 px-4 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/30"/>
+        <button onClick={() => sendMessage()} disabled={loading || !input.trim()}
+          className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl transition flex items-center gap-1.5 text-sm font-medium">
+          <Send size={14}/>
+          {loading ? 'Enviando...' : 'Enviar'}
+        </button>
       </div>
     </div>
   )
