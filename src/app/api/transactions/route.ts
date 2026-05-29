@@ -10,12 +10,12 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const limit = parseInt(searchParams.get('limit') || '800')
-  const month = searchParams.get('month')
+  const month = searchParams.get('month')   // 'YYYY-MM'
   const category = searchParams.get('category')
   const currency = searchParams.get('currency')
   const type = searchParams.get('type')
   const recurring = searchParams.get('recurring')
-  const source = searchParams.get('source') // if not provided, show all sources
+  const source = searchParams.get('source')
 
   const supabase = createServiceClient()
 
@@ -26,12 +26,18 @@ export async function GET(req: NextRequest) {
     .order('date', { ascending: false })
     .limit(limit)
 
-  if (month) query = query.ilike('date', `${month}%`)
+  // Use range filter (works correctly on timestamptz columns)
+  if (month) {
+    const [y, m] = month.split('-').map(Number)
+    const start = new Date(y, m - 1, 1).toISOString()
+    const end = new Date(y, m, 0, 23, 59, 59).toISOString()
+    query = query.gte('date', start).lte('date', end)
+  }
+
   if (category) query = query.eq('category', category)
   if (currency) query = query.eq('currency', currency)
   if (type) query = query.eq('type', type)
   if (recurring === 'true') query = query.eq('is_recurring', true)
-  // Only filter by source if explicitly requested
   if (source) query = query.eq('source', source)
 
   const { data, error } = await query
