@@ -25,6 +25,7 @@ export async function GET(req) {
 
   const rows = tx || []
 
+  // Real gastos: exclude Ahorro (savings), and explicitly gasto type only
   const isGasto = (t) => t.type === 'gasto' && t.category !== 'Ahorro'
   const amtPen = (t) => Number(t.amount_pen || t.amount || 0)
 
