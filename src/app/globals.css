@@ -1,5 +1,61 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 * { box-sizing: border-box; padding: 0; margin: 0; }
 html, body { max-width: 100vw; overflow-x: hidden; }
+
+:root {
+  --bg-base:     #070b14;
+  --bg-card:     #0d1526;
+  --bg-card2:    #111d35;
+  --bg-hover:    #162040;
+  --border:      #1e2d4a;
+  --border2:     #243354;
+  --text-1:      #f1f5f9;
+  --text-2:      #94a3b8;
+  --text-3:      #64748b;
+  --blue:        #3b82f6;
+  --blue-glow:   rgba(59,130,246,0.15);
+  --green:       #10b981;
+  --green-glow:  rgba(16,185,129,0.15);
+  --red:         #ef4444;
+  --red-glow:    rgba(239,68,68,0.12);
+  --orange:      #f97316;
+  --purple:      #8b5cf6;
+  --yellow:      #eab308;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+.card2 {
+  background: var(--bg-card2);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+}
+
+/* Animations */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes pulse-glow { 0%,100% { box-shadow: 0 0 0 0 var(--blue-glow); } 50% { box-shadow: 0 0 20px 4px var(--blue-glow); } }
+
+.animate-fade { animation: fadeIn 0.3s ease both; }
+.animate-slide { animation: slideIn 0.25s ease both; }
+
+/* Number font */
+.num { font-variant-numeric: tabular-nums; }
+
+/* Trend chips */
+.trend-up   { color: var(--green); background: var(--green-glow); }
+.trend-down { color: var(--red);   background: var(--red-glow); }
+.trend-neu  { color: var(--text-2); background: rgba(100,116,139,0.1); }
