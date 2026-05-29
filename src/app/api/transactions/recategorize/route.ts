@@ -4,8 +4,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/authOptions'
 import { createServiceClient } from '@/lib/supabase'
 
-// All available categories
-export const CATEGORIES = [
+const CATEGORIES = [
   'Sueldo','Restaurantes','Delivery','Supermercados','Transporte','Gasolina',
   'Entretenimiento','Suscripciones','Servicios','Alquiler','Seguros','Ahorro',
   'Mascotas','Viajes','Hospedaje','Compras','Moda','Salud','Tecnología',
@@ -36,8 +35,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (txId) {
-    const { error } = await supabase
-      .from('transactions').update({ category: newCategory }).eq('id', txId).eq('user_id', uid)
+    const { error } = await supabase.from('transactions').update({ category: newCategory }).eq('id', txId).eq('user_id', uid)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true, updated: 1, scope: 'single' })
   }
