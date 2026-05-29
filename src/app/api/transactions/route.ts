@@ -7,14 +7,15 @@ import { createServiceClient } from '@/lib/supabase'
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
   const { searchParams } = new URL(req.url)
-  const limit = parseInt(searchParams.get('limit') || '600')
+  const limit = parseInt(searchParams.get('limit') || '800')
   const month = searchParams.get('month')
   const category = searchParams.get('category')
-  const currency = searchParams.get('currency') // can be null = all currencies
+  const currency = searchParams.get('currency')
   const type = searchParams.get('type')
   const recurring = searchParams.get('recurring')
-  const source = searchParams.get('source')
+  const source = searchParams.get('source') // if not provided, show all sources
 
   const supabase = createServiceClient()
 
@@ -30,12 +31,12 @@ export async function GET(req: NextRequest) {
   if (currency) query = query.eq('currency', currency)
   if (type) query = query.eq('type', type)
   if (recurring === 'true') query = query.eq('is_recurring', true)
+  // Only filter by source if explicitly requested
   if (source) query = query.eq('source', source)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Ensure amount_pen fallback
   const transactions = (data || []).map(t => ({
     ...t,
     amount: Number(t.amount),

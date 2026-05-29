@@ -206,7 +206,7 @@ function TransactionsInner() {
   async function loadTx() {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ limit: '600', source: 'eecc' })
+      const params = new URLSearchParams({ limit: '800' })
       if (monthFilter) params.set('month', monthFilter)
       const res = await fetch(`/api/transactions?${params}`)
       const data = await res.json()

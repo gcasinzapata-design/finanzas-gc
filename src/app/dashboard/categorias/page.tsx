@@ -96,14 +96,22 @@ export default function CategoriasPage() {
   const months = analytics?.months || []
   const monthOptions = [{ v:'', l:'Todos los meses' }, ...months.map(m => ({ v: m, l: (MN[m]||m)+' 2026' }))]
 
-  // Only show expense categories (exclude Ahorro in the list since it's not a real expense)
+  // Get the value for a category in the selected month (or last month)
+  const getCatValue = (c) => {
+    if (!month) return c.last
+    const found = c.monthly?.find(m => m.month === month)
+    return found?.total || 0
+  }
+
   const catTrend = useMemo(() => {
     return (analytics?.categoryTrend || []).filter(c =>
       c.category !== 'Ahorro' && c.total > 0
-    )
-  }, [analytics])
+    ).map(c => ({ ...c, displayValue: getCatValue(c) }))
+      .filter(c => !month || c.displayValue > 0)
+      .sort((a, b) => b.displayValue - a.displayValue)
+  }, [analytics, month])
 
-  const totalGastos = useMemo(() => catTrend.reduce((s,c) => s + c.last, 0), [catTrend])
+  const totalGastos = useMemo(() => catTrend.reduce((s,c) => s + c.displayValue, 0), [catTrend])
   const selectedCat = useMemo(() => analytics?.categoryTrend?.find(c => c.category === selected), [analytics, selected])
 
   // Transactions for selected category in selected month (or latest)
@@ -228,7 +236,7 @@ export default function CategoriasPage() {
                         </td>
                       )
                     })}
-                    {month && <td className="text-right px-4 py-2.5 num font-semibold text-white">{S(c.last)}</td>}
+                    {month && <td className="text-right px-4 py-2.5 num font-semibold text-white">{S(c.displayValue)}</td>}
                     <td className="px-3 py-2.5 text-right hidden md:table-cell">
                       {vals.length > 1 && (
                         <svg width={50} height={16} viewBox="0 0 50 16">
@@ -250,7 +258,7 @@ export default function CategoriasPage() {
                       </td>
                     )}
                     <td className="px-4 py-2.5 text-right" style={{ color: 'var(--text-3)' }}>
-                      {totalGastos > 0 ? `${((c.last/totalGastos)*100).toFixed(1)}%` : '—'}
+                      {totalGastos > 0 ? `${((c.displayValue/totalGastos)*100).toFixed(1)}%` : '—'}
                     </td>
                   </tr>
                 )

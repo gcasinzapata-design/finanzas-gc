@@ -1,128 +1,71 @@
 // @ts-nocheck
+// Copiloto IA usa Gemini Flash (free tier) para análisis financiero
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/authOptions'
 import { createServiceClient } from '@/lib/supabase'
-import Anthropic from '@anthropic-ai/sdk'
 
-function fmt(n) {
-  return new Intl.NumberFormat('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0)
-}
+const S = (n) => `S/ ${new Intl.NumberFormat('es-PE', { minimumFractionDigits: 2 }).format(n || 0)}`
 
-function buildSystemPrompt(tx, cards, debts, goals) {
-  const now = new Date()
+function buildSystem(tx, cards, debts) {
   const months = ['2026-02', '2026-03', '2026-04', '2026-05']
-  
-  // Gastos por mes
+  const amtPen = (t) => Number(t.amount_pen || t.amount || 0)
+
   const byMonth = {}
   months.forEach(m => {
-    const g = tx.filter(t => t.type === 'gasto' && t.date?.startsWith(m) && t.currency === 'PEN')
-    const i = tx.filter(t => t.type === 'ingreso' && t.date?.startsWith(m) && t.currency === 'PEN')
+    const g = tx.filter(t => t.type === 'gasto' && t.category !== 'Ahorro' && t.date?.startsWith(m))
+    const i = tx.filter(t => t.type === 'ingreso' && t.category === 'Sueldo' && t.date?.startsWith(m))
     byMonth[m] = {
-      gastos: g.reduce((s, t) => s + Number(t.amount), 0),
-      ingresos: i.reduce((s, t) => s + Number(t.amount), 0),
+      gastos: g.reduce((s, t) => s + amtPen(t), 0),
+      ingresos: i.reduce((s, t) => s + amtPen(t), 0),
     }
   })
 
-  // Top categorías (histórico)
   const byCat = {}
-  tx.filter(t => t.type === 'gasto' && t.currency === 'PEN').forEach(t => {
+  tx.filter(t => t.type === 'gasto' && t.category !== 'Ahorro').forEach(t => {
     const c = t.category || 'Otros'
-    byCat[c] = (byCat[c] || 0) + Number(t.amount)
+    byCat[c] = (byCat[c] || 0) + amtPen(t)
   })
-  const topCats = Object.entries(byCat).sort(([, a], [, b]) => b - a).slice(0, 10)
+  const topCats = Object.entries(byCat).sort(([,a],[,b]) => b-a).slice(0, 12)
 
-  // Gastos fijos
-  const fixedTx = tx.filter(t => t.is_recurring && t.type === 'gasto' && t.date?.startsWith('2026-04'))
-  const fixedByLabel = {}
-  fixedTx.forEach(t => {
-    const l = t.recurring_label || t.category
-    fixedByLabel[l] = (fixedByLabel[l] || 0) + Number(t.amount)
-  })
-  const totalFijosAbr = Object.values(fixedByLabel).reduce((s, v) => s + v, 0)
+  const realCards = cards.filter(c => !(c.bank === 'Interbank' && (c.name||'').toLowerCase().includes('access')))
+  const totalTC = realCards.reduce((s, c) => s + Number(c.current_balance||0), 0)
+  const totalPrest = debts.reduce((s, d) => s + Number(d.current_balance||0), 0)
+  const cuotas = realCards.reduce((s,c) => s + Number(c.minimum_payment||0), 0)
+    + debts.reduce((s,d) => s + Number(d.monthly_payment||0), 0)
+  const sueldo = byMonth['2026-05']?.ingresos || byMonth['2026-04']?.ingresos || 8762
 
-  const totalTarjetas = cards.reduce((s, c) => s + Number(c.current_balance || 0), 0)
-  const totalPrestamos = debts.reduce((s, d) => s + Number(d.current_balance || 0), 0)
-  const cuotasPrest = debts.reduce((s, d) => s + Number(d.monthly_payment || 0), 0)
-  const cuotasTC = cards.reduce((s, c) => s + Number(c.minimum_payment || 0), 0)
-  const sueldoAbr = byMonth['2026-04']?.ingresos || 8762.23
-  const ratioDeuda = sueldoAbr > 0 ? ((cuotasPrest + cuotasTC) / sueldoAbr * 100).toFixed(1) : 'N/A'
+  return `Eres el COPILOTO FINANCIERO de Gian Carlo Asin Zapata, asesor financiero personal experto en Perú.
 
-  const deudas = [
-    ...cards.filter(c => Number(c.current_balance) > 0).map(c => ({
-      n: `${c.bank} ${c.name} ***${c.last_four || ''}`,
-      s: Number(c.current_balance),
-      t: Number(c.tcea || c.tea || 0),
-      m: Number(c.minimum_payment || 0),
-      tipo: 'TC',
-      corte: c.cut_date,
-      vence: c.payment_due_date
-    })),
-    ...debts.filter(d => Number(d.current_balance) > 0).map(d => ({
-      n: `${d.name} (${d.institution})`,
-      s: Number(d.current_balance),
-      t: Number(d.tea || d.tcea || 0),
-      m: Number(d.monthly_payment || 0),
-      tipo: 'Préstamo',
-      cuotasRest: d.remaining_installments,
-      prox: d.next_payment_date
-    }))
-  ]
+DATOS REALES (Feb–May 2026):
 
-  return `Eres el COPILOTO FINANCIERO de Gian Carlo Asin Zapata, un asesor financiero personal experto en finanzas peruanas.
+📅 CASHFLOW MENSUAL (PEN):
+Feb: Ingresos ${S(byMonth['2026-02']?.ingresos)} | Gastos ${S(byMonth['2026-02']?.gastos)} | Balance ${S(byMonth['2026-02']?.ingresos - byMonth['2026-02']?.gastos)}
+Mar: Ingresos ${S(byMonth['2026-03']?.ingresos)} | Gastos ${S(byMonth['2026-03']?.gastos)} | Balance ${S(byMonth['2026-03']?.ingresos - byMonth['2026-03']?.gastos)}
+Abr: Ingresos ${S(byMonth['2026-04']?.ingresos)} | Gastos ${S(byMonth['2026-04']?.gastos)} | Balance ${S(byMonth['2026-04']?.ingresos - byMonth['2026-04']?.gastos)}
+May: Ingresos ${S(byMonth['2026-05']?.ingresos)} | Gastos ${S(byMonth['2026-05']?.gastos)}
 
-CONTEXTO DE GIAN CARLO:
-- Trabaja en Lima, Perú. Sueldo neto: ~S/8,762/mes (CTS + gratificaciones adicionales)
-- Situación de deuda CRÍTICA: ratio compromisos/ingreso ~97%
-- Objetivo: salir de deudas, sobretodo las tarjetas de crédito con tasas altas
+💳 TARJETAS DE CRÉDITO:
+${realCards.filter(c=>Number(c.current_balance)>0).map(c => `  • ${c.bank} ${c.name} ***${c.last_four}: S/${Number(c.current_balance).toFixed(0)} deuda | TCEA ${c.tcea||c.tea||'?'}% | Mín S/${Number(c.minimum_payment||0).toFixed(0)}/mes`).join('\n')}
+  TOTAL TC: ${S(totalTC)}
 
-━━━━━━━━━ DATOS FINANCIEROS ACTUALES ━━━━━━━━━
+🏦 PRÉSTAMOS:
+${debts.filter(d=>Number(d.current_balance)>0).map(d => `  • ${d.name} (${d.institution}): S/${Number(d.current_balance).toFixed(0)} | Cuota ${S(Number(d.monthly_payment||0))}/mes | TEA ${d.tea||'?'}% | ${d.remaining_installments||'?'} cuotas rest.`).join('\n')}
+  TOTAL PRÉSTAMOS: ${S(totalPrest)}
 
-📅 HISTORIAL MENSUAL (PEN):
-Feb 2026: Ingresos S/${fmt(byMonth['2026-02']?.ingresos)} | Gastos S/${fmt(byMonth['2026-02']?.gastos)} | Balance S/${fmt((byMonth['2026-02']?.ingresos||0) - (byMonth['2026-02']?.gastos||0))}
-Mar 2026: Ingresos S/${fmt(byMonth['2026-03']?.ingresos)} | Gastos S/${fmt(byMonth['2026-03']?.gastos)} | Balance S/${fmt((byMonth['2026-03']?.ingresos||0) - (byMonth['2026-03']?.gastos||0))}
-Abr 2026: Ingresos S/${fmt(byMonth['2026-04']?.ingresos)} | Gastos S/${fmt(byMonth['2026-04']?.gastos)} | Balance S/${fmt((byMonth['2026-04']?.ingresos||0) - (byMonth['2026-04']?.gastos||0))}
+💰 DEUDA TOTAL: ${S(totalTC + totalPrest)} | CUOTAS/MES: ${S(cuotas)} (${(cuotas/sueldo*100).toFixed(0)}% del sueldo)
 
-📊 GASTOS FIJOS IDENTIFICADOS (Abr): S/${fmt(totalFijosAbr)}/mes
-${Object.entries(fixedByLabel).sort(([,a],[,b]) => b-a).map(([l, a]) => `  • ${l}: S/${fmt(a)}`).join('\n')}
+📊 TOP CATEGORÍAS (histórico):
+${topCats.map(([c,a]) => `  • ${c}: ${S(a)}`).join('\n')}
 
-💳 TARJETAS DE CRÉDITO (${cards.length}):
-${cards.filter(c=>Number(c.current_balance)>0).map(c => `  • ${c.bank} ${c.name} ***${c.last_four||'?'}: Deuda S/${fmt(c.current_balance)} | TCEA ${c.tcea||c.tea||'?'}% | Límite S/${fmt(c.credit_limit)} | Pago mín S/${fmt(c.minimum_payment||0)} | Corte día ${c.cut_date||'?'} | Vence día ${c.payment_due_date||'?'}`).join('\n')}
-  TOTAL TC: S/${fmt(totalTarjetas)}
-
-🏦 PRÉSTAMOS (${debts.length}):
-${debts.filter(d=>Number(d.current_balance)>0).map(d => `  • ${d.name} (${d.institution}): Saldo S/${fmt(d.current_balance)} | Cuota S/${fmt(d.monthly_payment||0)}/mes | TEA ${d.tea||'?'}% | ${d.remaining_installments||'?'} cuotas restantes | Próx: ${d.next_payment_date||'?'}`).join('\n')}
-  TOTAL PRÉSTAMOS: S/${fmt(totalPrestamos)}
-
-💰 DEUDA TOTAL: S/${fmt(totalTarjetas + totalPrestamos)}
-📉 COMPROMISOS FIJOS: S/${fmt(cuotasPrest + cuotasTC)}/mes (${ratioDeuda}% del sueldo)
-💵 LIQUIDEZ ESTIMADA: S/${fmt(Math.max(0, sueldoAbr - cuotasPrest - cuotasTC))}/mes
-
-🎯 OBJETIVOS FINANCIEROS:
-${goals.length > 0 ? goals.map(g => `  • ${g.icon||'🎯'} ${g.name}: S/${fmt(g.current_amount)}/S/${fmt(g.target_amount)} (${(g.current_amount/g.target_amount*100).toFixed(0)}%)`).join('\n') : '  • Sin objetivos definidos aún'}
-
-📈 TOP CATEGORÍAS DE GASTO (histórico):
-${topCats.map(([c, a]) => `  • ${c}: S/${fmt(a)}`).join('\n')}
-
-🔴 ORDEN AVALANCHA (mayor TCEA primero — óptimo para ahorrar intereses):
-${[...deudas].filter(d=>d.t>0).sort((a,b) => b.t - a.t).map((d,i) => `  ${i+1}. ${d.n}: S/${fmt(d.s)} al ${d.t}% | mín S/${fmt(d.m)}/mes`).join('\n')}
-
-🟢 ORDEN BOLA DE NIEVE (menor saldo primero — motivación rápida):
-${[...deudas].sort((a,b) => a.s - b.s).map((d,i) => `  ${i+1}. ${d.n}: S/${fmt(d.s)}`).join('\n')}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-INSTRUCCIONES:
-1. Sé ESPECÍFICO con números exactos (siempre usa S/ para soles, $ para dólares)
-2. Da consejos ACCIONABLES, no solo informativos
-3. Cuando hagas cálculos de deudas, muestra el math completo
-4. Habla en español peruano natural y directo
-5. Si detectas oportunidades de ahorro o errores, señálalos claramente
-6. Priorizan estrategias reales dado el flujo de caja ajustado de Gian Carlo
-7. Menciona fechas de corte/pago de tarjetas cuando sea relevante`
+REGLAS:
+- Usa S/ para soles, $ para dólares
+- Da consejos ACCIONABLES y ESPECÍFICOS con números exactos
+- Orden avalancha: AMEX BCP 81.5% → Visa Sapphire 57% → BBVA Black 69.99% → IBK Infinite 34.8%
+- Habla en español peruano natural y directo`
 }
 
-export async function POST(req) {
+export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
@@ -131,42 +74,57 @@ export async function POST(req) {
     const supabase = createServiceClient()
     const uid = session.user.id
 
-    const [txR, cR, dR, gR] = await Promise.all([
-      supabase.from('transactions').select('amount,type,category,description,merchant,date,bank,currency,is_recurring,recurring_label').eq('user_id', uid).eq('source', 'eecc').order('date', { ascending: false }).limit(500),
+    const [txR, cR, dR] = await Promise.all([
+      supabase.from('transactions').select('amount,amount_pen,type,category,description,merchant,date,bank,currency,is_recurring').eq('user_id', uid).in('source', ['eecc','gmail']).order('date', { ascending: false }).limit(600),
       supabase.from('credit_cards').select('*').eq('user_id', uid).eq('is_active', true),
       supabase.from('debts').select('*').eq('user_id', uid).eq('is_active', true),
-      supabase.from('financial_goals').select('*').eq('user_id', uid).eq('is_completed', false),
     ])
 
-    const systemPrompt = buildSystemPrompt(txR.data || [], cR.data || [], dR.data || [], gR.data || [])
+    const systemPrompt = buildSystem(txR.data || [], cR.data || [], dR.data || [])
 
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    if (!apiKey) {
-      return NextResponse.json({ reply: '⚠️ ANTHROPIC_API_KEY no configurada en Vercel. Ve a Settings → Environment Variables y agrégala.' })
+    // Try Anthropic first, fall back to Gemini
+    const anthropicKey = process.env.ANTHROPIC_API_KEY
+    const geminiKey = process.env.GEMINI_API_KEY || 'AIzaSyDM12m8wsZQSs1jrnFDOu_n1e49lBc6T-8'
+
+    const anthroMessages = messages.map(m => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }))
+
+    // Try Anthropic
+    if (anthropicKey) {
+      try {
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model: 'claude-haiku-4-5', max_tokens: 1500, system: systemPrompt, messages: anthroMessages }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const reply = data.content?.[0]?.text
+          if (reply) return NextResponse.json({ reply, model: 'Claude Haiku' })
+        }
+      } catch {}
     }
 
-    const client = new Anthropic({ apiKey })
-
-    const anthropicMessages = messages.map(m => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    }))
-
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 1500,
-      system: systemPrompt,
-      messages: anthropicMessages,
+    // Fallback to Gemini Flash (free)
+    const geminiMessages = [
+      { role: 'user', parts: [{ text: systemPrompt + '\n\nAhora responde esta consulta de Gian Carlo:\n\n' + messages[messages.length-1]?.content }] }
+    ]
+    
+    const gemRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: geminiMessages, generationConfig: { maxOutputTokens: 1500 } }),
     })
 
-    const reply = response.content[0]?.text || 'Sin respuesta'
-    return NextResponse.json({ reply })
+    if (gemRes.ok) {
+      const data = await gemRes.json()
+      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
+      if (reply) return NextResponse.json({ reply, model: 'Gemini Flash' })
+    }
+
+    return NextResponse.json({ reply: '⚠️ No hay servicio de IA disponible. Verifica la ANTHROPIC_API_KEY en Vercel → Settings → Environment Variables.' })
 
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Error desconocido'
-    if (msg.includes('quota') || msg.includes('429') || msg.includes('rate')) {
-      return NextResponse.json({ reply: '⚠️ Límite de API alcanzado. Espera un momento e intenta de nuevo.' })
-    }
+    const msg = err instanceof Error ? err.message : 'Error'
     console.error('Chat error:', msg)
     return NextResponse.json({ reply: `Error: ${msg}` })
   }
