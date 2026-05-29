@@ -24,9 +24,12 @@ const TX_ICON = {
   Retiro:'🏧','Retiro Efectivo':'🏧',Impuestos:'📋',Otros:'📦',
 }
 const MONTHS = [
-  { v:'', l:'Todos los meses' }, { v:'2026-05', l:'Mayo 2026' },
-  { v:'2026-04', l:'Abril 2026' }, { v:'2026-03', l:'Marzo 2026' },
+  { v:'', l:'Todos los meses' },
+  { v:'2026-05', l:'Mayo 2026' },
+  { v:'2026-04', l:'Abril 2026' },
+  { v:'2026-03', l:'Marzo 2026' },
   { v:'2026-02', l:'Febrero 2026' },
+  { v:'2026-01', l:'Enero 2026' },
 ]
 const ALL_CATS = [
   'Sueldo','Restaurantes','Delivery','Supermercados','Transporte','Gasolina',
@@ -185,7 +188,7 @@ function TransactionsInner() {
   const [allTx, setAllTx] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [monthFilter, setMonthFilter] = useState('2026-04')
+  const [monthFilter, setMonthFilter] = useState('2026-05')
   const [typeFilter, setTypeFilter] = useState('all')
   const [catFilter, setCatFilter] = useState('')
   const [currFilter, setCurrFilter] = useState('all')

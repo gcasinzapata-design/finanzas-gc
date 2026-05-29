@@ -46,7 +46,8 @@ export default function PrestamosPage() {
   }
 
   const activeDebts = debts.filter(d => Number(d.current_balance) > 0)
-  const activeCards = cards.filter(c => Number(c.current_balance) > 0)
+  // Exclude IBK Visa Access — it's a compra de deuda, shown in loans section
+  const activeCards = cards.filter(c => Number(c.current_balance) > 0 && !(c.bank === 'Interbank' && (c.name||'').toLowerCase().includes('access')))
 
   const totalDebtPrest = activeDebts.reduce((s, d) => s + Number(d.current_balance), 0)
   const totalDebtCards = activeCards.reduce((s, c) => s + Number(c.current_balance), 0)
