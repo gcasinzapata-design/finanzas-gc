@@ -66,7 +66,7 @@ export default function AnalisisPage() {
     const counts = new Array(7).fill(0);
     (data?.transactions || []).filter((t: any) => t.type === 'gasto').forEach((t: any) => {
       const d = new Date(t.date)
-      totals[d.getDay()] += Number(t.amount)
+      totals[d.getDay()] += Number(t.amount_pen||t.amount)
       counts[d.getDay()]++
     })
     return days.map((name, i) => ({ name, total: Math.round(totals[i]), avg: counts[i] > 0 ? Math.round(totals[i] / counts[i]) : 0 }))
@@ -78,7 +78,7 @@ export default function AnalisisPage() {
     ;(data?.transactions || []).filter((t: any) => t.type === 'gasto' && t.date?.startsWith('2026-04')).forEach((t: any) => {
       const c = t.category || 'Otros'
       if (!byCat[c]) byCat[c] = { total: 0, count: 0 }
-      byCat[c].total += Number(t.amount)
+      byCat[c].total += Number(t.amount_pen||t.amount)
       byCat[c].count++
     })
     return Object.entries(byCat).map(([cat, { total, count }]) => ({

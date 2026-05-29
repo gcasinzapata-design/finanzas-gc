@@ -48,6 +48,7 @@ export default function DashboardPage() {
   const [debts, setDebts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
+  const [selectedMonth, setSelectedMonth] = useState('2026-04')
 
   useEffect(() => { loadAll() }, [])
 
@@ -264,7 +265,7 @@ export default function DashboardPage() {
               </div>
               <div className="text-right flex-shrink-0">
                 <p className={`text-sm font-bold num ${t.type === 'ingreso' ? 'text-green-400' : t.type === 'transferencia' ? 'text-blue-400' : 'text-white'}`}>
-                  {t.type === 'ingreso' ? '+' : t.type === 'gasto' ? '-' : '↔'}{S2(Number(t.amount))}
+                  {t.type === 'ingreso' ? '+' : t.type === 'gasto' ? '-' : '↔'}{S2(Number(t.amount_pen||t.amount))}
                 </p>
               </div>
             </Link>
