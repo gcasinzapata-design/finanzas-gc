@@ -1,54 +1,58 @@
 // @ts-nocheck
 'use client'
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { TrendingUp, TrendingDown, X, Tag, RefreshCw, Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { TrendingUp, TrendingDown, X, Tag, RefreshCw, Check, ChevronRight } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
 const S = (n) => `S/ ${new Intl.NumberFormat('es-PE',{minimumFractionDigits:0}).format(n||0)}`
 const CAT_CLR = {
   Seguros:'#f97316',Deudas:'#ef4444',Delivery:'#fb923c',Restaurantes:'#f59e0b',
-  Transporte:'#3b82f6',Supermercados:'#84cc16',Entretenimiento:'#8b5cf6',
+  Transporte:'#3b82f6',Supermercados:'#22c55e',Markets:'#4ade80',Entretenimiento:'#8b5cf6',
   Servicios:'#eab308',Alquiler:'#0ea5e9',Suscripciones:'#ec4899',Mascotas:'#14b8a6',
   Viajes:'#a78bfa',Sueldo:'#22c55e',Tecnología:'#06b6d4',Compras:'#f43f5e',
   Moda:'#db2777',Salud:'#10b981',Gasolina:'#78716c',Educación:'#6366f1',
-  Ahorro:'#22d3ee',Impuestos:'#dc2626',Intereses:'#16a34a',Otros:'#64748b',
+  Hogar:'#a16207',Impuestos:'#dc2626',Intereses:'#16a34a',Internet:'#6366f1',
+  Club:'#d97706','Yape/Plin':'#7c3aed',Otros:'#64748b',
 }
 const TX_ICON = {
   Sueldo:'💰',Delivery:'🛵',Transporte:'🚗',Restaurantes:'🍽️',Seguros:'🔒',Supermercados:'🛒',
-  Entretenimiento:'🎬',Deudas:'🏦',Mascotas:'🐾',Viajes:'✈️',Servicios:'⚡',Suscripciones:'📱',
-  Alquiler:'🏠',Tecnología:'💻',Compras:'🛍️',Moda:'👔',Salud:'💊',Gasolina:'⛽',
-  Educación:'📚',Ahorro:'🐷',Impuestos:'📋',Intereses:'💹',Otros:'📦',
+  Markets:'🏪',Entretenimiento:'🎬',Deudas:'🏦',Mascotas:'🐾',Viajes:'✈️',Servicios:'⚡',
+  Suscripciones:'📱',Alquiler:'🏠',Tecnología:'💻',Compras:'🛍️',Moda:'👔',Salud:'💊',
+  Gasolina:'⛽',Educación:'📚',Hogar:'🏡',Impuestos:'📋',Intereses:'💹',Internet:'🌐',
+  Club:'🎭','Yape/Plin':'📲',Otros:'📦',
 }
 const MN = {'2026-01':'Ene','2026-02':'Feb','2026-03':'Mar','2026-04':'Abr','2026-05':'May'}
 const ALL_CATS = [
-  'Restaurantes','Delivery','Supermercados','Transporte','Gasolina','Entretenimiento',
-  'Suscripciones','Servicios','Alquiler','Seguros','Mascotas','Viajes','Hospedaje',
-  'Compras','Moda','Salud','Tecnología','Educación','Deudas','Cuotas Préstamos',
-  'Transferencias','Transferencias Recibidas','Pago Tarjeta','Retiro Efectivo',
-  'Impuestos','Intereses','Comisiones','Hogar','Otros',
+  'Restaurantes','Delivery','Markets','Supermercados','Transporte','Gasolina',
+  'Entretenimiento','Suscripciones','Servicios','Alquiler','Seguros','Internet','Hogar',
+  'Mascotas','Viajes','Compras','Moda','Salud','Tecnología','Educación','Club',
+  'Cuotas Préstamos','Ahorro','Yape/Plin','Pago Tarjeta','Pago Préstamo',
+  'Transferencias Propias','Transferencias Recibidas','Impuestos','Intereses','Comisiones','Otros',
 ]
 
-function CatPicker({ current, onSelect, onClose }) {
+function CatModal({ current, onClose, onSelect }) {
   const [search, setSearch] = useState('')
   const filtered = ALL_CATS.filter(c => c.toLowerCase().includes(search.toLowerCase()))
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{background:'rgba(0,0,0,0.6)'}} onClick={onClose}>
-      <div className="w-full max-w-xs rounded-2xl overflow-hidden animate-fade" style={{background:'var(--bg-card2)',border:'1px solid var(--border2)'}} onClick={e=>e.stopPropagation()}>
-        <div className="px-4 py-3 border-b flex items-center justify-between" style={{borderColor:'var(--border)'}}>
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4"
+      style={{background:'rgba(0,0,0,0.7)'}} onClick={onClose}>
+      <div className="w-full md:max-w-sm rounded-t-2xl md:rounded-2xl overflow-hidden shadow-2xl"
+        style={{background:'var(--bg-card)',border:'1px solid var(--border)'}} onClick={e=>e.stopPropagation()}>
+        <div className="px-4 pt-4 pb-2 flex items-center justify-between border-b" style={{borderColor:'var(--border)'}}>
           <h3 className="text-sm font-semibold text-white">Cambiar categoría</h3>
-          <button onClick={onClose}><X size={14} style={{color:'var(--text-3)'}}/></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10"><X size={14} style={{color:'var(--text-3)'}}/></button>
         </div>
         <div className="p-3">
-          <input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar categoría..."
+          <input autoFocus value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..."
             className="w-full text-sm px-3 py-2 rounded-xl"
             style={{background:'var(--bg-base)',border:'1px solid var(--border)',color:'var(--text-1)'}}/>
         </div>
-        <div className="max-h-64 overflow-y-auto pb-2">
-          {filtered.map(c => (
-            <button key={c} onClick={() => onSelect(c)}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-white/5 transition-colors"
-              style={{color: c===current?'#60a5fa':'var(--text-2)'}}>
-              <span className="text-base">{TX_ICON[c]||'📋'}</span>
+        <div className="max-h-64 overflow-y-auto pb-3">
+          {filtered.map(c=>(
+            <button key={c} onClick={()=>onSelect(c)}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-white/5"
+              style={{color:c===current?'#60a5fa':'var(--text-2)'}}>
+              <span>{TX_ICON[c]||'📋'}</span>
               <span className="flex-1">{c}</span>
               {c===current && <Check size={12} className="text-blue-400"/>}
             </button>
@@ -64,7 +68,8 @@ export default function CategoriasPage() {
   const [loading, setLoading] = useState(true)
   const [month, setMonth] = useState('')
   const [selected, setSelected] = useState(null)
-  const [reclassifyTarget, setReclassifyTarget] = useState(null) // { merchant, txId, currentCat }
+  // reclassify target: { txId, merchant, currentCat, merchantCount }
+  const [reclTarget, setReclTarget] = useState(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -72,28 +77,42 @@ export default function CategoriasPage() {
 
   function load() {
     setLoading(true)
-    fetch('/api/analytics').then(r => r.json()).then(d => {
-      setAnalytics(d); setLoading(false)
-    }).catch(() => setLoading(false))
+    fetch('/api/analytics').then(r=>r.json()).then(d=>{setAnalytics(d);setLoading(false)}).catch(()=>setLoading(false))
   }
 
-  async function reclassify(merchant, newCat, txId, applyAll) {
+  // ── THE FIX: always pass txId when single, merchant when all ──
+  async function reclassify(target, newCat) {
+    if (!target || !newCat) return
     setSaving(true)
-    setReclassifyTarget(null)
+    setReclTarget(null)
+
+    let body
+    if (target.applyAll && target.merchant) {
+      body = { merchant: target.merchant, newCategory: newCat, applyToAll: true }
+    } else {
+      // Single tx: MUST pass txId
+      body = { txId: target.txId, newCategory: newCat, applyToAll: false }
+    }
+
     try {
       const res = await fetch('/api/transactions/recategorize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ merchant, newCategory: newCat, applyToAll: applyAll, txId })
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
       })
       const data = await res.json()
       if (data.success) {
-        setToast(`✅ ${data.updated} transacción${data.updated>1?'es':''} → ${newCat}`)
-        setTimeout(() => setToast(null), 3000)
+        const scope = data.scope === 'all_months' ? `${data.updated} transacciones de "${target.merchant}"` : '1 transacción'
+        setToast(`✅ ${scope} → ${newCat}`)
+        setTimeout(()=>setToast(null), 3000)
         load()
         setSelected(null)
+      } else {
+        setToast(`❌ Error: ${data.error}`)
+        setTimeout(()=>setToast(null), 3000)
       }
-    } catch(e) { console.error(e) }
+    } catch(e) {
+      setToast(`❌ Error de conexión`)
+      setTimeout(()=>setToast(null), 3000)
+    }
     setSaving(false)
   }
 
@@ -102,7 +121,7 @@ export default function CategoriasPage() {
 
   const getCatValue = useCallback((c) => {
     if (!month) return c.last
-    return c.monthly?.find(m => m.month === month)?.total || 0
+    return c.monthly?.find(m=>m.month===month)?.total || 0
   }, [month])
 
   const catTrend = useMemo(() => {
@@ -116,7 +135,6 @@ export default function CategoriasPage() {
   const totalGastos = useMemo(() => catTrend.reduce((s,c)=>s+c.displayValue,0), [catTrend])
   const selectedCat = useMemo(() => analytics?.categoryTrend?.find(c=>c.category===selected), [analytics, selected])
 
-  // Transactions for the selected category
   const catTransactions = useMemo(() => {
     if (!selected || !analytics?.transactions) return []
     return analytics.transactions
@@ -141,33 +159,27 @@ export default function CategoriasPage() {
   return (
     <div className="p-4 md:p-5 space-y-4 max-w-6xl mx-auto" style={{background:'var(--bg-base)',minHeight:'100vh'}}>
 
-      {/* Toast */}
-      {toast && <div className="fixed top-4 right-4 z-50 px-4 py-2.5 rounded-xl text-sm text-white shadow-xl animate-fade" style={{background:'#059669'}}>{toast}</div>}
+      {toast && <div className="fixed top-4 right-4 z-50 px-4 py-2.5 rounded-xl text-sm text-white shadow-xl animate-fade" style={{background:toast.startsWith('✅')?'#059669':'#dc2626'}}>{toast}</div>}
 
-      {/* Reclassify picker */}
-      {reclassifyTarget && (
-        <CatPicker
-          current={reclassifyTarget.currentCat}
-          onClose={() => setReclassifyTarget(null)}
+      {reclTarget && (
+        <CatModal current={reclTarget.currentCat} onClose={()=>setReclTarget(null)}
           onSelect={newCat => {
-            if (reclassifyTarget.merchant) {
-              const count = selectedCat?.merchantList?.find(m=>m.name===reclassifyTarget.merchant)?.count || 1
-              const applyAll = count > 1
-                ? window.confirm(`¿Aplicar "${newCat}" a TODAS las ${count} transacciones de "${reclassifyTarget.merchant}" en todos los meses?\n\nOK = Todos los meses | Cancelar = Solo este`)
-                : false
-              reclassify(applyAll ? reclassifyTarget.merchant : null, newCat, applyAll ? null : reclassifyTarget.txId, applyAll)
+            if (reclTarget.merchantCount > 1) {
+              const applyAll = window.confirm(
+                `¿Aplicar "${newCat}" a TODAS las ${reclTarget.merchantCount} transacciones de "${reclTarget.merchant}"?\n\nOK = Todos los meses\nCancelar = Solo esta transacción`
+              )
+              reclassify({...reclTarget, applyAll}, newCat)
             } else {
-              reclassify(null, newCat, reclassifyTarget.txId, false)
+              reclassify({...reclTarget, applyAll: false}, newCat)
             }
           }}
         />
       )}
 
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-lg md:text-xl font-bold text-white">Categorías</h1>
-          <p className="text-xs mt-0.5" style={{color:'var(--text-3)'}}>Click en categoría para ver transacciones y reclasificar</p>
+          <p className="text-xs mt-0.5" style={{color:'var(--text-3)'}}>Clic en categoría → transacciones → Recategorizar (persiste en DB)</p>
         </div>
         <div className="flex items-center gap-2">
           <select value={month} onChange={e=>{setMonth(e.target.value);setSelected(null)}}
@@ -181,7 +193,6 @@ export default function CategoriasPage() {
         </div>
       </div>
 
-      {/* MoM chart */}
       {!month && availMonths.length >= 2 && (
         <div className="card p-4">
           <h2 className="text-sm font-semibold text-white mb-3">Comparativo mensual — Top 10</h2>
@@ -198,13 +209,10 @@ export default function CategoriasPage() {
         </div>
       )}
 
-      {/* Category table */}
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b flex items-center justify-between" style={{borderColor:'var(--border)'}}>
-          <h2 className="text-sm font-semibold text-white">
-            {month ? monthOptions.find(m2=>m2.v===month)?.l : 'Todos los meses'}
-          </h2>
-          <span className="text-xs" style={{color:'var(--text-3)'}}>{catTrend.length} categorías · {S(totalGastos)}</span>
+          <h2 className="text-sm font-semibold text-white">{month ? monthOptions.find(m2=>m2.v===month)?.l : 'Todos los meses'}</h2>
+          <span className="text-xs" style={{color:'var(--text-3)'}}>{catTrend.length} cats · {S(totalGastos)}</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs min-w-[480px]">
@@ -226,8 +234,7 @@ export default function CategoriasPage() {
                 const vals = c.monthly?.map(m=>m.total)||[]
                 const maxV = Math.max(...vals,1)
                 return (
-                  <tr key={c.category}
-                    className="cursor-pointer transition-colors"
+                  <tr key={c.category} className="cursor-pointer transition-colors"
                     style={{borderBottom:'1px solid var(--border)',background:isOpen?'var(--blue-glow)':'transparent'}}
                     onClick={()=>setSelected(isOpen?null:c.category)}>
                     <td className="px-4 py-2.5">
@@ -279,7 +286,6 @@ export default function CategoriasPage() {
         </div>
       </div>
 
-      {/* CATEGORY DETAIL — transactions + reclassify */}
       {selected && selectedCat && (
         <div className="card overflow-hidden animate-fade">
           <div className="px-4 md:px-5 py-4 border-b flex items-center justify-between" style={{borderColor:'var(--border)'}}>
@@ -288,7 +294,7 @@ export default function CategoriasPage() {
               <div>
                 <h2 className="font-semibold text-white">{selected}</h2>
                 <p className="text-xs" style={{color:'var(--text-3)'}}>
-                  {catTransactions.length} transacciones · {S(catTransactions.reduce((s,t)=>s+Number(t.amount_pen||t.amount),0))}
+                  {catTransactions.length} txs · {S(catTransactions.reduce((s,t)=>s+Number(t.amount_pen||t.amount),0))}
                   {month ? ` en ${MN[month]||month}` : ' histórico'}
                 </p>
               </div>
@@ -298,48 +304,53 @@ export default function CategoriasPage() {
             </button>
           </div>
 
-          {/* Transaction list with inline reclassify button */}
           <div className="divide-y max-h-96 overflow-y-auto" style={{borderColor:'var(--border)'}}>
             {catTransactions.length === 0 ? (
               <div className="px-5 py-10 text-center">
                 <p className="text-2xl mb-2">📭</p>
                 <p className="text-sm" style={{color:'var(--text-3)'}}>
-                  {month ? `Sin transacciones de "${selected}" en ${MN[month]||month}` : `Sin transacciones en "${selected}"`}
+                  {month ? `Sin transacciones de "${selected}" en ${MN[month]||month}` : `Sin transacciones`}
                 </p>
               </div>
-            ) : catTransactions.map((t,i) => (
-              <div key={t.id||i} className="flex items-center gap-3 px-4 md:px-5 py-3 hover:bg-white/[0.02]">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate" style={{color:'var(--text-1)'}}>
-                    {t.merchant||t.description?.slice(0,35)||'—'}
-                  </p>
-                  <p className="text-xs mt-0.5" style={{color:'var(--text-3)'}}>
-                    {t.date?.slice(0,10)} · {t.bank}
-                    {t.currency==='USD' && <span className="ml-1.5 px-1 rounded" style={{background:'rgba(234,179,8,0.15)',color:'#fbbf24'}}>USD ${t.amount}</span>}
-                  </p>
+            ) : catTransactions.map((t,i) => {
+              const merchantCount = selectedCat.merchantList?.find(m=>m.name===t.merchant)?.count || 1
+              return (
+                <div key={t.id||i} className="flex items-center gap-3 px-4 md:px-5 py-3 hover:bg-white/[0.02]">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{color:'var(--text-1)'}}>
+                      {t.merchant||t.description?.slice(0,35)||'—'}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{color:'var(--text-3)'}}>
+                      {t.date?.slice(0,10)} · {t.bank}
+                      {t.currency==='USD' && <span className="ml-1.5 px-1 rounded" style={{background:'rgba(234,179,8,0.15)',color:'#fbbf24'}}>USD ${Number(t.amount).toFixed(0)}</span>}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-sm font-bold num text-white">{S(Number(t.amount_pen||t.amount))}</span>
+                    <button
+                      disabled={saving}
+                      onClick={() => setReclTarget({
+                        txId: t.id,
+                        merchant: t.merchant,
+                        currentCat: t.category||'Otros',
+                        merchantCount,
+                      })}
+                      className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg"
+                      style={{background:'var(--bg-card2)',border:'1px solid var(--border2)',color:'var(--text-3)'}}>
+                      <Tag size={11}/>
+                      <span className="hidden md:inline">Cambiar</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-sm font-bold num text-white">{S(Number(t.amount_pen||t.amount))}</span>
-                  {/* Reclassify button — always visible */}
-                  <button
-                    onClick={() => setReclassifyTarget({ merchant: t.merchant, txId: t.id, currentCat: t.category||'Otros' })}
-                    className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
-                    style={{background:'var(--bg-card2)',border:'1px solid var(--border2)',color:'var(--text-3)'}}
-                    title="Cambiar categoría">
-                    <Tag size={11}/>
-                    <span className="hidden md:inline">Recategorizar</span>
-                  </button>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
-          {/* Merchant summary */}
           {selectedCat.merchantList.length > 0 && (
             <div className="border-t" style={{borderColor:'var(--border)'}}>
               <div className="px-4 py-2.5 flex items-center justify-between" style={{borderBottom:'1px solid var(--border)'}}>
-                <p className="text-xs font-semibold text-white">Comercios en esta categoría</p>
-                <span className="text-xs" style={{color:'var(--text-3)'}}>{selectedCat.merchantList.length} comercios · Total histórico: {S(selectedCat.merchantList.reduce((s,m)=>s+m.total,0))}</span>
+                <p className="text-xs font-semibold text-white">Todos los comercios</p>
+                <span className="text-xs" style={{color:'var(--text-3)'}}>{selectedCat.merchantList.length} · {S(selectedCat.merchantList.reduce((s,m)=>s+m.total,0))} total histórico</span>
               </div>
               <div className="divide-y max-h-48 overflow-y-auto" style={{borderColor:'var(--border)'}}>
                 {selectedCat.merchantList.map((m,i) => (
@@ -351,10 +362,17 @@ export default function CategoriasPage() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-sm font-bold num text-white">{S(m.total)}</span>
                       <button
-                        onClick={() => setReclassifyTarget({ merchant: m.name, txId: null, currentCat: selected })}
-                        className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg"
+                        disabled={saving}
+                        onClick={() => setReclTarget({
+                          txId: null,
+                          merchant: m.name,
+                          currentCat: selected,
+                          merchantCount: m.count,
+                          applyAll: true,
+                        })}
+                        className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg"
                         style={{background:'var(--bg-card2)',border:'1px solid var(--border2)',color:'var(--text-3)'}}>
-                        <Tag size={11}/> <span className="hidden md:inline">Todos ({m.count})</span><span className="md:hidden">{m.count}</span>
+                        <Tag size={10}/> <span className="hidden md:inline">Todos ({m.count})</span>
                       </button>
                     </div>
                   </div>
