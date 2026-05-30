@@ -77,7 +77,7 @@ export default function CategoriasPage() {
 
   function load() {
     setLoading(true)
-    fetch('/api/analytics').then(r=>r.json()).then(d=>{setAnalytics(d);setLoading(false)}).catch(()=>setLoading(false))
+    fetch('/api/analytics?' + Date.now()).then(r=>r.json()).then(d=>{setAnalytics(d);setLoading(false)}).catch(()=>setLoading(false))
   }
 
   // ── THE FIX: always pass txId when single, merchant when all ──

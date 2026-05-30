@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/authOptions'
 import { createServiceClient } from '@/lib/supabase'
 
 export async function GET(req) {
+  // Force fresh data on every request (no caching)
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
