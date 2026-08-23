@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { LayoutDashboard, ArrowLeftRight, TrendingDown, Tag, BarChart2, MessageSquareText, Upload, Target, ScanLine, LogOut, Zap, Brain, CreditCard, Calendar } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, TrendingDown, Tag, BarChart2, MessageSquareText, Upload, Target, ScanLine, LogOut, Zap, Brain, CreditCard, Calendar, Inbox } from 'lucide-react'
 import Image from 'next/image'
 
 const NAV = [
@@ -13,6 +13,7 @@ const NAV = [
   { href: '/dashboard/deuda', icon: TrendingDown, label: 'Plan Deuda', group: 'smart', badge: 'NEW' },
   { href: '/dashboard/inteligencia', icon: Brain, label: 'Inteligencia IA', group: 'smart', badge: 'NEW' },
   { href: '/dashboard/prestamos', icon: CreditCard, label: 'Préstamos & TC', group: 'smart' },
+  { href: '/dashboard/import', icon: Inbox, label: 'Importar', group: 'tools', badge: 'NEW' },
   { href: '/dashboard/goals', icon: Target, label: 'Objetivos', group: 'tools' },
   { href: '/dashboard/eecc', icon: Upload, label: 'Importar EECC', group: 'tools' },
   { href: '/dashboard/ocr', icon: ScanLine, label: 'Escanear Recibo', group: 'tools' },
