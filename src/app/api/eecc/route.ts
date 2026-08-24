@@ -31,22 +31,15 @@ REGLAS CRÍTICAS:
 - Real Club=gasto,Club | ITF=gasto,Impuestos`
 
 async function extractText(buffer: Buffer): Promise<string> {
-  // Polyfill browser globals missing in Node.js serverless
-  if (typeof (globalThis as any).DOMMatrix === 'undefined') {
-    (globalThis as any).DOMMatrix = class DOMMatrix {
-      constructor() { return new Proxy(this, {}) }
-    }
-  }
-  if (typeof (globalThis as any).Path2D === 'undefined') {
-    (globalThis as any).Path2D = class Path2D {}
-  }
-  if (typeof (globalThis as any).ImageData === 'undefined') {
-    (globalThis as any).ImageData = class ImageData {}
-  }
+  // Polyfill browser APIs before pdf-parse loads pdfjs-dist
+  const g = globalThis as any
+  if (!g.DOMMatrix) g.DOMMatrix = class DOMMatrix { constructor() {} }
+  if (!g.Path2D) g.Path2D = class Path2D {}
+  if (!g.ImageData) g.ImageData = class ImageData {}
+  if (!g.OffscreenCanvas) g.OffscreenCanvas = class OffscreenCanvas { getContext() { return null } }
   try {
-    // Use direct import path to avoid pdf-parse test runner code
-    const pdfParse = (await import('pdf-parse/lib/pdf-parse.js' as any)).default
-    const data = await pdfParse(buffer, { max: 0 })
+    const pdfParse = (await import('pdf-parse')).default
+    const data = await pdfParse(buffer)
     return data.text || ''
   } catch (e: any) {
     console.error('pdf-parse error:', e.message)
