@@ -1,185 +1,223 @@
 // @ts-nocheck
+// EECC Parser — multi-file, extracts text with pdf-parse, sends to Claude Haiku
+// maxDuration 60s to avoid Vercel timeout on Hobby plan
+export const maxDuration = 60
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import Anthropic from '@anthropic-ai/sdk'
-import { createHash } from 'crypto'
 import { authOptions } from '@/lib/authOptions'
 import { createServiceClient } from '@/lib/supabase'
+import { createHash } from 'crypto'
 
-function makeHash(userId, date, amount, description) {
+function makeHash(userId: string, date: string, amount: number, desc: string) {
   return createHash('md5')
-    .update(`${userId}|${date}|${Math.round(Number(amount) * 100)}|${String(description).slice(0, 50)}`)
+    .update(`${userId}|eecc|${date}|${Math.round(amount * 100)}|${desc.slice(0, 40)}`)
     .digest('hex')
 }
 
-const PROMPT = `Analiza este Estado de Cuenta (EECC) bancario peruano.
-Extrae TODAS las transacciones sin omitir ninguna.
+const SYSTEM = `Eres un experto en estados de cuenta bancarios peruanos.
+Extrae TODAS las transacciones del texto. Responde SOLO con JSON válido, sin markdown ni explicaciones.
 
-Responde SOLO con JSON válido sin markdown:
+Formato exacto:
 {
   "bank": "nombre del banco",
-  "account_type": "cuenta_ahorros|tarjeta_credito",
-  "period": "período (ej: Abril 2026)",
+  "period": "Mes Año",
   "currency": "PEN" o "USD",
-  "opening_balance": número o null,
-  "closing_balance": número o null,
   "transactions": [
     {
       "date": "YYYY-MM-DD",
-      "description": "descripción exacta",
+      "description": "descripción exacta del EECC",
+      "merchant": "nombre limpio del comercio",
       "amount": número positivo,
-      "type": "gasto" o "ingreso",
-      "category": "Restaurantes|Supermercados|Transporte|Salud|Entretenimiento|Compras|Servicios|Educación|Suscripciones|Viajes|Deudas|Seguros|Delivery|Alquiler|Otros",
-      "merchant": "nombre del comercio o null"
+      "type": "gasto" | "ingreso" | "transferencia",
+      "category": "Restaurantes|Delivery|Supermercados|Markets|Transporte|Gasolina|Salud|Suscripciones|Servicios|Hogar|Internet|Club|Mascotas|Viajes|Compras|Entretenimiento|Cuotas Préstamos|Pago Tarjeta|Ahorro|Impuestos|Intereses|Sueldo|Otros"
     }
   ]
 }
 
 REGLAS:
-- CUENTA AHORROS: CARGOS/DEBE = gasto | ABONOS/HABER = ingreso
-- TARJETA CREDITO: CONSUMO = gasto | PAGO = ingreso (transferencia)
+- CUENTA AHORROS: CARGO/DEBE = gasto | ABONO/HABER = ingreso
+- TARJETA CRÉDITO: CONSUMO/CARGO = gasto | PAGO = transferencia (Pago Tarjeta)
 - Montos SIEMPRE positivos
-- WARDA = seguros = gasto, categoría Seguros
-- HABERES/SUELDO = ingreso, categoría Sueldo
-- PAG.T.PROP / PAGCRED = pago deuda = gasto, categoría Deudas
-- Yape enviado = gasto | Yape recibido = ingreso`
+- Sueldo/Haberes = ingreso, category: Sueldo
+- WARDA = category: Ahorro, type: transferencia
+- Intereses/mora = gasto, category: Intereses
+- Cuota préstamo = gasto, category: Cuotas Préstamos
+- Yape/Plin recibido = ingreso | Yape/Plin enviado = gasto, category: Yape/Plin
+- Real Club = category: Club
+- Netflix/Spotify/Apple/Rappi Pro/Claro/Amazon Prime = Suscripciones, type: gasto
+- Tambo/Listo/OXXO/Brisas Market/IZI = Markets
+- Wong/Vivanda/Tottus/Metro/Plaza Vea = Supermercados
+- ITF = Impuestos, type: gasto
+- Si no puedes determinar fecha, usa el primer día del período`
 
-export async function POST(req) {
+async function extractTextFromPDF(buffer: Buffer): Promise<string> {
+  // Dynamic import to avoid build issues
+  const pdfParse = (await import('pdf-parse')).default
+  try {
+    const data = await pdfParse(buffer)
+    return data.text || ''
+  } catch {
+    // If pdf-parse fails (e.g. password protected), return empty
+    return ''
+  }
+}
+
+async function parseWithClaude(text: string, filename: string): Promise<any> {
+  const key = process.env.ANTHROPIC_API_KEY
+  if (!key) throw new Error('Falta ANTHROPIC_API_KEY en variables de entorno de Vercel')
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5',
+      max_tokens: 4096,
+      system: SYSTEM,
+      messages: [{
+        role: 'user',
+        content: `Archivo: ${filename}\n\nTexto del EECC:\n${text.slice(0, 25000)}`
+      }]
+    })
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(`Claude API error ${res.status}: ${err?.error?.message || 'Unknown'}`)
+  }
+
+  const data = await res.json()
+  const raw = data.content?.[0]?.text?.replace(/```json|```/g, '').trim() || ''
+  const parsed = JSON.parse(raw)
+  if (!parsed.transactions?.length) throw new Error('No se encontraron transacciones')
+  return parsed
+}
+
+// POST: parse one or multiple EECC files
+export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const contentType = req.headers.get('content-type') || ''
 
+  // ── Confirm insertion (JSON body with transactions) ──────────────────────
   if (contentType.includes('application/json')) {
-    try {
-      const body = await req.json()
-      const { importId, transactions, currency, bank } = body
-      if (!transactions?.length) return NextResponse.json({ error: 'Sin transacciones' }, { status: 400 })
-      const supabase = createServiceClient()
-      const userId = session.user.id
-      let inserted = 0, skipped = 0
-      for (const tx of transactions) {
-        if (tx.skip || tx.duplicate) { skipped++; continue }
-        const { error } = await supabase.from('transactions').upsert({
-          user_id: userId,
-          bank: bank || 'Banco',
-          amount: Math.abs(Number(tx.amount) || 0),
-          currency: currency || 'PEN',
-          type: tx.type === 'ingreso' ? 'ingreso' : 'gasto',
-          category: tx.category || 'Otros',
-          description: tx.description || '',
-          merchant: tx.merchant || null,
-          date: tx.date ? new Date(tx.date + 'T12:00:00').toISOString() : new Date().toISOString(),
-          source: 'eecc',
-          eecc_hash: tx.hash,
-          eecc_import_id: importId || null,
-        }, { onConflict: 'user_id,eecc_hash' })
-        if (!error) inserted++
-        else skipped++
-      }
-      await supabase.from('eecc_imports')
-        .update({ status: 'completed', total_inserted: inserted, total_duplicates: skipped })
-        .eq('id', importId)
-      return NextResponse.json({ success: true, inserted, skipped, message: `${inserted} transacciones importadas` })
-    } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : 'Error' }, { status: 500 })
-    }
-  }
-
-  try {
-    const formData = await req.formData()
-    const file = formData.get('file')
-    const password = formData.get('password') || ''
-    if (!file || typeof file === 'string') return NextResponse.json({ error: 'Archivo requerido' }, { status: 400 })
-    if (file.size > 20 * 1024 * 1024) return NextResponse.json({ error: 'Archivo supera 20MB' }, { status: 400 })
-
-    const key = process.env.ANTHROPIC_API_KEY
-    if (!key) return NextResponse.json({ error: 'Falta ANTHROPIC_API_KEY' }, { status: 500 })
-
-    const buffer = await file.arrayBuffer()
-    const base64 = Buffer.from(buffer).toString('base64')
-    const isPDF = file.type?.includes('pdf') || file.name?.toLowerCase().endsWith('.pdf')
-    const mimeType = isPDF ? 'application/pdf' : (file.type || 'image/jpeg')
-
-    const client = new Anthropic({ apiKey: key })
-    const promptFinal = password
-      ? `${PROMPT}\n\nNota: La contraseña del PDF es: ${password}`
-      : PROMPT
-
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-5',
-      max_tokens: 4000,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-          { type: 'text', text: promptFinal }
-        ]
-      }]
-    })
-
-    const raw = response.content[0]?.text?.replace(/```json|```/g, '').trim() || ''
-    let parsed
-    try { parsed = JSON.parse(raw) }
-    catch { return NextResponse.json({ error: 'No pude leer el archivo. Verifica que sea un EECC válido.' }, { status: 422 }) }
-
-    if (!parsed.transactions?.length) {
-      return NextResponse.json({ error: 'No encontré transacciones en el documento.' }, { status: 422 })
-    }
+    const { transactions, importId, currency, bank } = await req.json()
+    if (!transactions?.length) return NextResponse.json({ error: 'Sin transacciones' }, { status: 400 })
 
     const supabase = createServiceClient()
-    const userId = session.user.id
-    const enriched = []
-    for (const tx of parsed.transactions) {
-      const hash = makeHash(userId, tx.date || '', tx.amount || 0, tx.description || '')
-      const { data: existing } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('eecc_hash', hash).maybeSingle()
-      enriched.push({
-        ...tx,
-        hash,
-        duplicate: !!existing,
-        amount: Math.abs(Number(tx.amount) || 0),
-        type: tx.type === 'ingreso' ? 'ingreso' : 'gasto',
-      })
+    const uid = session.user.id
+    let inserted = 0, skipped = 0, errors: string[] = []
+
+    for (const tx of transactions) {
+      if (tx.skip) { skipped++; continue }
+      const { error } = await supabase.from('transactions').upsert({
+        user_id: uid,
+        bank: tx.bank || bank || 'Banco',
+        amount: Number(tx.amount),
+        currency: tx.currency || currency || 'PEN',
+        amount_pen: tx.currency === 'USD' ? Number(tx.amount) * 3.72 : Number(tx.amount),
+        fx_rate: tx.currency === 'USD' ? 3.72 : 1.0,
+        type: tx.type || 'gasto',
+        category: tx.category || 'Otros',
+        description: tx.description || tx.merchant || '—',
+        merchant: tx.merchant || null,
+        date: `${tx.date}T12:00:00+00:00`,
+        source: 'eecc',
+        is_recurring: false,
+        eecc_hash: tx.hash,
+      }, { onConflict: 'eecc_hash', ignoreDuplicates: true })
+
+      if (error) errors.push(error.message)
+      else inserted++
     }
 
-    const { data: importRecord } = await supabase.from('eecc_imports').insert({
-      user_id: userId,
-      filename: file.name,
-      bank: parsed.bank || 'Desconocido',
-      period: parsed.period || '',
-      total_found: enriched.length,
-      status: 'pending',
-    }).select().single()
-
-    return NextResponse.json({
-      success: true,
-      importId: importRecord?.id,
-      bank: parsed.bank,
-      account_type: parsed.account_type,
-      period: parsed.period,
-      currency: parsed.currency || 'PEN',
-      opening_balance: parsed.opening_balance,
-      closing_balance: parsed.closing_balance,
-      transactions: enriched,
-      summary: {
-        total: enriched.length,
-        new: enriched.filter(t => !t.duplicate).length,
-        duplicates: enriched.filter(t => t.duplicate).length,
-        total_gastos: enriched.filter(t => t.type === 'gasto').reduce((s, t) => s + t.amount, 0),
-        total_ingresos: enriched.filter(t => t.type === 'ingreso').reduce((s, t) => s + t.amount, 0),
-      },
-    })
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Error'
-    console.error('EECC error:', msg)
-    return NextResponse.json({ error: msg }, { status: 500 })
+    return NextResponse.json({ success: true, inserted, skipped, errors })
   }
+
+  // ── Parse PDF files ──────────────────────────────────────────────────────
+  const formData = await req.formData()
+  const files = formData.getAll('file') as File[]
+  const password = formData.get('password') as string || ''
+
+  if (!files.length) return NextResponse.json({ error: 'Sube al menos un archivo' }, { status: 400 })
+
+  const uid = session.user.id
+  const supabase = createServiceClient()
+  const results: any[] = []
+
+  for (const file of files) {
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer())
+
+      // Extract text from PDF
+      let text = await extractTextFromPDF(buffer)
+
+      if (!text || text.length < 100) {
+        results.push({
+          filename: file.name,
+          error: `No se pudo leer el PDF "${file.name}". Si está protegido con contraseña, primero quítale la contraseña en Adobe o Preview (Mac) antes de subirlo.`,
+          transactions: []
+        })
+        continue
+      }
+
+      // Parse with Claude Haiku
+      const parsed = await parseWithClaude(text, file.name)
+
+      // Enrich with hashes + dedup check
+      const enriched = []
+      for (const tx of parsed.transactions) {
+        const hash = makeHash(uid, tx.date || '', Number(tx.amount) || 0, tx.description || '')
+        const { data: existing } = await supabase
+          .from('transactions').select('id')
+          .eq('user_id', uid).eq('eecc_hash', hash).maybeSingle()
+        enriched.push({
+          ...tx,
+          bank: parsed.bank || 'Banco',
+          currency: parsed.currency || 'PEN',
+          amount: Math.abs(Number(tx.amount) || 0),
+          hash,
+          duplicate: !!existing,
+          status: existing ? 'duplicate' : 'new',
+        })
+      }
+
+      results.push({
+        filename: file.name,
+        bank: parsed.bank,
+        period: parsed.period,
+        currency: parsed.currency || 'PEN',
+        transactions: enriched,
+        summary: {
+          total: enriched.length,
+          new: enriched.filter(t => !t.duplicate).length,
+          duplicates: enriched.filter(t => t.duplicate).length,
+        }
+      })
+    } catch (err: any) {
+      results.push({
+        filename: file.name,
+        error: err.message || 'Error al procesar',
+        transactions: []
+      })
+    }
+  }
+
+  return NextResponse.json({ success: true, results, filesProcessed: files.length })
 }
 
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
   const supabase = createServiceClient()
-  const { data } = await supabase.from('eecc_imports').select('*').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(20)
+  const { data } = await supabase.from('eecc_imports')
+    .select('*').eq('user_id', session.user.id)
+    .order('created_at', { ascending: false }).limit(20)
   return NextResponse.json({ imports: data || [] })
 }

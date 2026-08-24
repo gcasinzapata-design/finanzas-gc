@@ -15,12 +15,14 @@
     "lucide-react": "^0.383.0",
     "next": "14.2.5",
     "next-auth": "^4.24.8",
+    "pdf-parse": "^2.4.5",
     "react": "^18",
     "react-dom": "^18",
     "recharts": "^2.12.7"
   },
   "devDependencies": {
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "autoprefixer": "^10.4.19",

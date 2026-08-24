@@ -1,481 +1,298 @@
+// @ts-nocheck
 'use client'
 import { useState, useRef, useCallback } from 'react'
-import {
-  Upload, FileText, Check, X, AlertTriangle,
-  ChevronDown, ChevronUp, Loader2, History,
-  TrendingUp, TrendingDown, RefreshCw
-} from 'lucide-react'
+import { Upload, FileText, X, Check, Loader2, AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 
-interface EECCTransaction {
-  date: string
-  description: string
-  amount: number
-  type: 'gasto' | 'ingreso'
-  category: string
-  merchant: string | null
-  reference: string | null
-  hash: string
-  duplicate: boolean
-  skip?: boolean
-}
+const S = (n) => `S/ ${new Intl.NumberFormat('es-PE',{minimumFractionDigits:2}).format(n||0)}`
+const CAT_CLR = { Restaurantes:'#f97316',Delivery:'#fb923c',Supermercados:'#22c55e',Markets:'#4ade80',Transporte:'#3b82f6',Gasolina:'#78716c',Salud:'#10b981',Suscripciones:'#ec4899',Servicios:'#eab308',Hogar:'#a16207',Internet:'#6366f1',Club:'#d97706',Mascotas:'#14b8a6',Viajes:'#a78bfa',Compras:'#f43f5e',Entretenimiento:'#8b5cf6','Cuotas Préstamos':'#ef4444','Pago Tarjeta':'#94a3b8',Ahorro:'#22d3ee',Impuestos:'#dc2626',Intereses:'#16a34a',Sueldo:'#22c55e','Yape/Plin':'#7c3aed',Otros:'#64748b' }
 
-interface EECCResult {
-  importId: string
-  bank: string
-  account_type: string
-  period: string
-  currency: string
-  opening_balance: number | null
-  closing_balance: number | null
-  transactions: EECCTransaction[]
-  summary: {
-    total: number
-    new: number
-    duplicates: number
-    gastos: number
-    ingresos: number
-    total_gastos: number
-    total_ingresos: number
-  }
-}
+function FileCard({ result, onToggle, selected }) {
+  const [open, setOpen] = useState(false)
+  const hasError = !!result.error
+  const newTxs = result.transactions?.filter(t => !t.duplicate) || []
+  const dupTxs = result.transactions?.filter(t => t.duplicate) || []
 
-interface ImportHistory {
-  id: string
-  filename: string
-  bank: string
-  period: string
-  total_found: number
-  total_inserted: number
-  status: string
-  created_at: string
-}
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-4 py-3 flex items-center gap-3 cursor-pointer border-b" style={{borderColor:'var(--border)'}} onClick={()=>setOpen(o=>!o)}>
+        <FileText size={16} style={{color: hasError?'#ef4444':'#22c55e', flexShrink:0}}/>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-white truncate">{result.filename}</p>
+          {!hasError && <p className="text-xs" style={{color:'var(--text-3)'}}>{result.bank} · {result.period} · {result.summary?.new} nuevas · {result.summary?.duplicates} ya existían</p>}
+          {hasError && <p className="text-xs text-red-400">{result.error}</p>}
+        </div>
+        {!hasError && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs px-2 py-0.5 rounded-full text-white" style={{background:'#22c55e'}}>{result.summary?.new} nuevas</span>
+            {open ? <ChevronDown size={14} style={{color:'var(--text-3)'}}/> : <ChevronRight size={14} style={{color:'var(--text-3)'}}/>}
+          </div>
+        )}
+      </div>
 
-const CAT_COLORS: Record<string, string> = {
-  'Restaurantes': '#f97316', 'Supermercados': '#84cc16', 'Alimentación': '#fb923c',
-  'Transporte': '#3b82f6', 'Salud': '#10b981', 'Entretenimiento': '#8b5cf6',
-  'Compras': '#f43f5e', 'Servicios': '#eab308', 'Educación': '#06b6d4',
-  'Vivienda': '#64748b', 'Suscripciones': '#ec4899', 'Viajes': '#f59e0b',
-  'Deudas': '#ef4444', 'Otros': '#94a3b8',
-}
-
-const CATEGORIES = ['Restaurantes','Supermercados','Alimentación','Transporte','Salud',
-  'Entretenimiento','Compras','Servicios','Educación','Vivienda','Suscripciones','Viajes','Deudas','Otros']
-
-function fmt(n: number) {
-  return new Intl.NumberFormat('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0)
+      {open && !hasError && (
+        <div className="max-h-80 overflow-y-auto divide-y" style={{borderColor:'var(--border)'}}>
+          {result.transactions?.map((tx, i) => (
+            <div key={i} className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02]"
+              style={{opacity: tx.duplicate ? 0.45 : 1}}>
+              <input type="checkbox" 
+                checked={!tx.duplicate && selected.has(`${result.filename}-${i}`)}
+                disabled={tx.duplicate}
+                onChange={() => onToggle(result.filename, i)}
+                className="flex-shrink-0"/>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-white truncate">{tx.merchant||tx.description?.slice(0,35)}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-xs px-1.5 py-0.5 rounded" style={{background:(CAT_CLR[tx.category]||'#64748b')+'20',color:CAT_CLR[tx.category]||'#94a3b8',fontSize:10}}>{tx.category}</span>
+                  <span className="text-xs" style={{color:'var(--text-3)'}}>{tx.date}</span>
+                  {tx.duplicate && <span className="text-xs" style={{color:'var(--text-3)'}}>✓ ya existe</span>}
+                </div>
+              </div>
+              <p className={`text-sm font-bold num flex-shrink-0 ${tx.type==='ingreso'?'text-green-400':tx.type==='transferencia'?'text-blue-400':'text-white'}`}>
+                {tx.type==='ingreso'?'+':tx.type==='gasto'?'−':'↔'}{S(tx.amount)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function EECCPage() {
-  const [dragging, setDragging] = useState(false)
-  const [password, setPassword] = useState('')
+  const [files, setFiles] = useState([])
+  const [password, setPassword] = useState('73325648')
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('')
-  const [result, setResult] = useState<EECCResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [transactions, setTransactions] = useState<EECCTransaction[]>([])
-  const [confirming, setConfirming] = useState(false)
-  const [confirmed, setConfirmed] = useState(false)
-  const [confirmResult, setConfirmResult] = useState<{inserted: number; skipped: number} | null>(null)
-  const [history, setHistory] = useState<ImportHistory[]>([])
-  const [showHistory, setShowHistory] = useState(false)
-  const [showDuplicates, setShowDuplicates] = useState(false)
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [results, setResults] = useState([]) // array of file results
+  const [selected, setSelected] = useState(new Set())
+  const [inserting, setInserting] = useState(false)
+  const [done, setDone] = useState(null)
+  const [error, setError] = useState(null)
+  const inputRef = useRef(null)
 
-  const handleFile = useCallback(async (file: File) => {
-    if (!file) return
+  const handleFiles = useCallback((newFiles) => {
+    setFiles(prev => {
+      const existing = new Set(prev.map(f => f.name))
+      const toAdd = Array.from(newFiles).filter(f => !existing.has(f.name))
+      return [...prev, ...toAdd]
+    })
+    setResults([])
+    setDone(null)
     setError(null)
-    setResult(null)
-    setConfirmed(false)
-    setConfirmResult(null)
-    setLoading(true)
-    setLoadingMsg('Leyendo archivo...')
-
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      if (password) formData.append('password', password)
-      setLoadingMsg('Gemini IA analizando transacciones...')
-      const res = await fetch('/api/eecc', { method: 'POST', body: formData })
-      const data = await res.json()
-      if (data.error) { setError(data.error); setLoading(false); return }
-      setResult(data)
-      setTransactions(data.transactions || [])
-    } catch (e) {
-      setError('Error de conexión. Intenta de nuevo.')
-    }
-    setLoading(false)
-    setLoadingMsg('')
   }, [])
 
-  const onDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault(); setDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (file) handleFile(file)
-  }, [handleFile])
+  const onDrop = useCallback((e) => {
+    e.preventDefault()
+    const dropped = e.dataTransfer?.files
+    if (dropped?.length) handleFiles(dropped)
+  }, [handleFiles])
 
-  async function confirmImport() {
-    if (!result) return
-    setConfirming(true)
-    try {
-      const toImport = transactions.filter(t => !t.skip)
-      const res = await fetch(`/api/eecc?confirm=true`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          confirm: true,
-          importId: result.importId,
-          transactions: toImport,
-          currency: result.currency,
-          bank: result.bank,
-        }),
+  function removeFile(name) {
+    setFiles(prev => prev.filter(f => f.name !== name))
+  }
+
+  async function processFiles() {
+    if (!files.length) return
+    setLoading(true)
+    setError(null)
+    setResults([])
+    setSelected(new Set())
+
+    const newSelected = new Set()
+    const allResults = []
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      setLoadingMsg(`Procesando ${file.name} (${i+1}/${files.length})…`)
+      try {
+        const fd = new FormData()
+        fd.append('file', file)
+        if (password) fd.append('password', password)
+
+        const res = await fetch('/api/eecc', { method: 'POST', body: fd })
+        const data = await res.json()
+
+        if (data.results?.[0]) {
+          const r = data.results[0]
+          allResults.push(r)
+          // Auto-select all new transactions
+          if (!r.error) {
+            r.transactions?.forEach((tx, idx) => {
+              if (!tx.duplicate) newSelected.add(`${r.filename}-${idx}`)
+            })
+          }
+        } else {
+          allResults.push({ filename: file.name, error: data.error || 'Error al procesar', transactions: [] })
+        }
+      } catch (err) {
+        allResults.push({ filename: file.name, error: err.message, transactions: [] })
+      }
+    }
+
+    setResults(allResults)
+    setSelected(newSelected)
+    setLoading(false)
+    setLoadingMsg('')
+  }
+
+  function toggleTx(filename, idx) {
+    const key = `${filename}-${idx}`
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  async function insertSelected() {
+    setInserting(true)
+    setError(null)
+    const toInsert = []
+
+    results.forEach(result => {
+      result.transactions?.forEach((tx, idx) => {
+        if (selected.has(`${result.filename}-${idx}`)) {
+          toInsert.push({ ...tx, bank: result.bank })
+        }
       })
-      const data = await res.json()
-      if (data.error) { setError(data.error); return }
-      setConfirmResult({ inserted: data.inserted, skipped: data.skipped })
-      setConfirmed(true)
-    } catch { setError('Error guardando transacciones') }
-    setConfirming(false)
-  }
+    })
 
-  async function loadHistory() {
-    const res = await fetch('/api/eecc')
+    if (!toInsert.length) { setInserting(false); return }
+
+    const res = await fetch('/api/eecc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transactions: toInsert })
+    })
     const data = await res.json()
-    setHistory(data.imports || [])
-    setShowHistory(true)
+    setInserting(false)
+    if (data.success) {
+      setDone({ inserted: data.inserted, skipped: data.skipped || 0 })
+      setSelected(new Set())
+    } else {
+      setError(data.error)
+    }
   }
 
-  function toggleSkip(idx: number) {
-    setTransactions(prev => prev.map((t, i) => i === idx ? { ...t, skip: !t.skip } : t))
-  }
-
-  function updateCategory(idx: number, category: string) {
-    setTransactions(prev => prev.map((t, i) => i === idx ? { ...t, category } : t))
-  }
-
-  function updateType(idx: number, type: 'gasto' | 'ingreso') {
-    setTransactions(prev => prev.map((t, i) => i === idx ? { ...t, type } : t))
-  }
-
-  const toImport = transactions.filter(t => !t.skip && !t.duplicate)
-  const duplicates = transactions.filter(t => t.duplicate)
-  const manualSkipped = transactions.filter(t => t.skip && !t.duplicate)
+  const totalNew = results.reduce((s,r) => s + (r.summary?.new||0), 0)
+  const totalDup = results.reduce((s,r) => s + (r.summary?.duplicates||0), 0)
+  const selectedCount = selected.size
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-white">Importar Estado de Cuenta</h1>
-          <p className="text-slate-400 text-sm mt-0.5">
-            Sube tu EECC bancario (PDF o imagen) y la IA extrae todas las transacciones
-          </p>
-        </div>
-        <button onClick={loadHistory}
-          className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm rounded-xl border border-slate-700 transition-colors">
-          <History className="w-4 h-4" /> Historial
-        </button>
+    <div className="p-4 md:p-5 space-y-4 max-w-3xl mx-auto" style={{background:'var(--bg-base)',minHeight:'100vh'}}>
+      <div>
+        <h1 className="text-xl font-bold text-white">Importar EECCs</h1>
+        <p className="text-xs mt-0.5" style={{color:'var(--text-3)'}}>
+          Sube varios PDFs a la vez · Claude Haiku los analiza · Dedup automático
+        </p>
       </div>
 
-      {/* Upload zone */}
-      {!result && !loading && (
-        <div
-          onDragOver={e => { e.preventDefault(); setDragging(true) }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          onClick={() => inputRef.current?.click()}
-          className={`border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all ${
-            dragging ? 'border-blue-500 bg-blue-500/10' : 'border-slate-700 hover:border-slate-500 hover:bg-slate-800/50'
-          }`}
-        >
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".pdf,image/*"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
-          />
-          <div className="w-16 h-16 rounded-2xl bg-slate-800 flex items-center justify-center mx-auto mb-4">
-            <Upload className="w-8 h-8 text-slate-400" />
-          </div>
-          <p className="text-white font-semibold text-lg mb-2">
-            Arrastra tu EECC aquí o haz click
-          </p>
-          <p className="text-slate-400 text-sm mb-4">PDF, JPG, PNG — Máx. 20MB</p>
-          <div className="flex flex-wrap justify-center gap-2">
-            {['BCP', 'Interbank', 'Scotiabank', 'BBVA', 'Amex', 'Visa', 'Mastercard', 'Yape'].map(b => (
-              <span key={b} className="px-2.5 py-1 bg-slate-700/50 text-slate-400 text-xs rounded-lg">{b}</span>
-            ))}
-          </div>
-          <div className="mt-4 flex items-center gap-2" onClick={e => e.stopPropagation()}>
-            <input
-              type="password"
-              placeholder="Contraseña del PDF (si está protegido)"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 text-sm focus:outline-none focus:border-slate-500 placeholder-slate-500"
-            />
-            {password && <span className="text-emerald-400 text-xs">🔑 Clave ingresada</span>}
-          </div>
+      {/* Drop zone */}
+      <div
+        onDrop={onDrop} onDragOver={e=>e.preventDefault()}
+        onClick={()=>inputRef.current?.click()}
+        className="border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors"
+        style={{borderColor:files.length?'var(--blue)':'var(--border)',background:files.length?'rgba(59,130,246,0.05)':'var(--bg-card)'}}>
+        <input ref={inputRef} type="file" accept=".pdf,.PDF" multiple className="hidden"
+          onChange={e => handleFiles(e.target.files)}/>
+        <Upload size={28} className="mx-auto mb-3" style={{color:files.length?'#3b82f6':'var(--text-3)'}}/>
+        <p className="font-medium" style={{color:files.length?'#fff':'var(--text-2)'}}>
+          {files.length ? `${files.length} archivo${files.length>1?'s':''} seleccionado${files.length>1?'s':''}` : 'Arrastra PDFs aquí o haz clic'}
+        </p>
+        <p className="text-xs mt-1" style={{color:'var(--text-3)'}}>
+          BCP · BBVA · Interbank · Múltiples archivos · PDFs SIN contraseña
+        </p>
+      </div>
+
+      {/* File list */}
+      {files.length > 0 && (
+        <div className="space-y-2">
+          {files.map(f => (
+            <div key={f.name} className="flex items-center gap-3 px-4 py-2.5 rounded-xl"
+              style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}>
+              <FileText size={14} style={{color:'var(--text-3)',flexShrink:0}}/>
+              <p className="text-sm text-white flex-1 truncate">{f.name}</p>
+              <p className="text-xs" style={{color:'var(--text-3)'}}>{(f.size/1024).toFixed(0)} KB</p>
+              <button onClick={()=>removeFile(f.name)} className="p-1 hover:bg-white/10 rounded">
+                <X size={12} style={{color:'var(--text-3)'}}/>
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
-      {/* Loading */}
-      {loading && (
-        <div className="border-2 border-dashed border-blue-500/30 bg-blue-500/5 rounded-2xl p-12 text-center">
-          <Loader2 className="w-10 h-10 text-blue-400 animate-spin mx-auto mb-4" />
-          <p className="text-white font-semibold">{loadingMsg}</p>
-          <p className="text-slate-400 text-sm mt-1">Esto puede tomar 15-30 segundos según el tamaño del archivo...</p>
-        </div>
-      )}
+      {/* Password */}
+      <div className="flex items-center gap-3">
+        <label className="text-sm flex-shrink-0" style={{color:'var(--text-2)'}}>Contraseña PDF (si aplica):</label>
+        <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Ej: 12345678"
+          className="flex-1 max-w-xs px-3 py-2 rounded-xl text-sm text-white"
+          style={{background:'var(--bg-card)',border:'1px solid var(--border)'}}/>
+        <p className="text-xs" style={{color:'var(--text-3)'}}>⚠️ Los PDFs protegidos deben desprotegerse primero</p>
+      </div>
 
-      {/* Error */}
+      {/* Important note about protected PDFs */}
+      <div className="px-4 py-3 rounded-xl" style={{background:'rgba(234,179,8,0.08)',border:'1px solid rgba(234,179,8,0.2)'}}>
+        <p className="text-xs" style={{color:'#fbbf24'}}>
+          <strong>Nota sobre PDFs protegidos:</strong> Para quitar contraseña en Mac: abre en Preview → Archivo → Exportar como PDF (sin marcar contraseña). En Windows: imprime a "Microsoft Print to PDF". En móvil: usa Smallpdf o iLovePDF.
+        </p>
+      </div>
+
       {error && (
-        <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 flex items-start gap-3">
-          <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p className="text-rose-300 font-medium">{error}</p>
-            <button onClick={() => { setError(null); setResult(null) }}
-              className="text-rose-400/70 text-sm mt-1 hover:underline">
-              Intentar con otro archivo
-            </button>
-          </div>
+        <div className="px-4 py-3 rounded-xl" style={{background:'rgba(239,68,68,0.1)',border:'1px solid rgba(239,68,68,0.3)'}}>
+          <p className="text-sm text-red-400">❌ {error}</p>
         </div>
       )}
 
-      {/* Confirmed result */}
-      {confirmed && confirmResult && (
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center">
-              <Check className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div>
-              <p className="text-emerald-300 font-bold text-lg">¡Importación exitosa!</p>
-              <p className="text-emerald-400/70 text-sm">
-                {confirmResult.inserted} transacciones guardadas · {confirmResult.skipped} omitidas
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => { setResult(null); setConfirmed(false); setTransactions([]) }}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm rounded-xl transition-colors">
-            <Upload className="w-4 h-4" /> Importar otro EECC
-          </button>
-        </div>
+      {/* Process button */}
+      {files.length > 0 && !results.length && (
+        <button onClick={processFiles} disabled={loading}
+          className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2"
+          style={{background:loading?'var(--border)':'var(--blue)'}}>
+          {loading ? <><Loader2 size={14} className="animate-spin"/>{loadingMsg}</> : <>Analizar {files.length} archivo{files.length>1?'s':''} con IA</>}
+        </button>
       )}
 
-      {/* Preview */}
-      {result && !confirmed && (
-        <div className="space-y-5">
-          {/* Info del EECC */}
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5">
-            <div className="flex items-start justify-between flex-wrap gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-blue-400" />
-                </div>
-                <div>
-                  <p className="text-white font-bold">{result.bank}</p>
-                  <p className="text-slate-400 text-sm">
-                    {result.account_type?.replace('_', ' ')} · {result.period}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-6 text-sm">
-                {result.opening_balance !== null && (
-                  <div><p className="text-slate-500 text-xs">Saldo inicial</p><p className="text-slate-200 font-semibold">S/ {fmt(result.opening_balance)}</p></div>
-                )}
-                {result.closing_balance !== null && (
-                  <div><p className="text-slate-500 text-xs">Saldo final</p><p className="text-slate-200 font-semibold">S/ {fmt(result.closing_balance)}</p></div>
-                )}
-              </div>
+      {/* Results */}
+      {results.length > 0 && (
+        <div className="space-y-3">
+          {/* Summary */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="card p-3 text-center">
+              <p className="text-xs" style={{color:'var(--text-3)'}}>Archivos</p>
+              <p className="text-2xl font-bold text-white">{results.length}</p>
+            </div>
+            <div className="card p-3 text-center">
+              <p className="text-xs" style={{color:'var(--text-3)'}}>Transacciones nuevas</p>
+              <p className="text-2xl font-bold text-green-400">{totalNew}</p>
+            </div>
+            <div className="card p-3 text-center">
+              <p className="text-xs" style={{color:'var(--text-3)'}}>Ya existían</p>
+              <p className="text-2xl font-bold" style={{color:'var(--text-3)'}}>{totalDup}</p>
             </div>
           </div>
 
-          {/* Resumen */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-              <p className="text-slate-400 text-xs mb-1">Total encontradas</p>
-              <p className="text-white text-2xl font-bold">{result.summary.total}</p>
-            </div>
-            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
-              <p className="text-emerald-400 text-xs mb-1">Nuevas a importar</p>
-              <p className="text-emerald-300 text-2xl font-bold">{toImport.length}</p>
-            </div>
-            <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4">
-              <p className="text-rose-400 text-xs mb-1">Total gastos</p>
-              <p className="text-rose-300 text-2xl font-bold">S/ {fmt(result.summary.total_gastos)}</p>
-            </div>
-            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
-              <p className="text-blue-400 text-xs mb-1">Total ingresos</p>
-              <p className="text-blue-300 text-2xl font-bold">S/ {fmt(result.summary.total_ingresos)}</p>
-            </div>
-          </div>
+          {results.map((r, i) => (
+            <FileCard key={i} result={r} onToggle={toggleTx} selected={selected}/>
+          ))}
 
-          {duplicates.length > 0 && (
-            <button
-              onClick={() => setShowDuplicates(!showDuplicates)}
-              className="flex items-center gap-2 text-amber-400 text-sm hover:text-amber-300"
-            >
-              <AlertTriangle className="w-4 h-4" />
-              {duplicates.length} transacciones ya existen en tu cuenta (duplicadas)
-              {showDuplicates ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          {!done && totalNew > 0 && (
+            <button onClick={insertSelected} disabled={inserting || !selectedCount}
+              className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2"
+              style={{background:!selectedCount?'var(--border)':'#059669'}}>
+              {inserting ? <><Loader2 size={14} className="animate-spin"/>Insertando…</> 
+                : <>✅ Insertar {selectedCount} transacciones seleccionadas</>}
             </button>
           )}
 
-          {/* Tabla de transacciones */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="text-white font-semibold text-sm">
-                Transacciones detectadas
-                <span className="ml-2 text-slate-400 font-normal">
-                  ({toImport.length} nuevas · {duplicates.length} duplicadas · {manualSkipped.length} omitidas)
-                </span>
-              </h3>
-              <p className="text-slate-500 text-xs">Edita categorías o desactiva lo que no quieras importar</p>
-            </div>
-
-            <div className="divide-y divide-slate-800">
-              {transactions.map((tx, idx) => {
-                if (tx.duplicate && !showDuplicates) return null
-                const isSkipped = tx.skip
-                const isDup = tx.duplicate
-                const expanded = expandedIdx === idx
-
-                return (
-                  <div key={idx} className={`transition-colors ${isSkipped || isDup ? 'opacity-40' : ''} ${isDup ? 'bg-amber-500/5' : ''}`}>
-                    <div className="flex items-center gap-3 px-5 py-3">
-                      {/* Toggle skip */}
-                      {!isDup && (
-                        <button
-                          onClick={() => toggleSkip(idx)}
-                          className={`w-5 h-5 rounded flex-shrink-0 border flex items-center justify-center transition-colors ${
-                            isSkipped ? 'border-slate-600 bg-transparent' : 'border-emerald-500 bg-emerald-500'
-                          }`}
-                        >
-                          {!isSkipped && <Check className="w-3 h-3 text-white" />}
-                        </button>
-                      )}
-                      {isDup && (
-                        <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
-                          <AlertTriangle className="w-4 h-4 text-amber-400" />
-                        </div>
-                      )}
-
-                      {/* Fecha */}
-                      <span className="text-slate-500 text-xs w-20 flex-shrink-0">
-                        {tx.date ? new Date(tx.date + 'T12:00:00').toLocaleDateString('es-PE', { day: 'numeric', month: 'short' }) : '—'}
-                      </span>
-
-                      {/* Descripción */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-slate-200 text-sm truncate">{tx.description}</p>
-                        {tx.merchant && tx.merchant !== tx.description && (
-                          <p className="text-slate-500 text-xs">{tx.merchant}</p>
-                        )}
-                      </div>
-
-                      {/* Categoría */}
-                      <select
-                        value={tx.category}
-                        onChange={e => updateCategory(idx, e.target.value)}
-                        disabled={isSkipped || isDup}
-                        onClick={e => e.stopPropagation()}
-                        className="text-xs rounded-lg px-2 py-1 border border-transparent focus:border-slate-600 focus:outline-none bg-transparent"
-                        style={{ color: CAT_COLORS[tx.category] || '#94a3b8' }}
-                      >
-                        {CATEGORIES.map(c => (
-                          <option key={c} value={c} style={{ background: '#1e293b', color: CAT_COLORS[c] }}>{c}</option>
-                        ))}
-                      </select>
-
-                      {/* Tipo */}
-                      <button
-                        onClick={() => !isDup && updateType(idx, tx.type === 'gasto' ? 'ingreso' : 'gasto')}
-                        className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors ${
-                          tx.type === 'ingreso' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
-                        }`}
-                      >
-                        {tx.type === 'ingreso' ? '+' : '-'}
-                      </button>
-
-                      {/* Monto */}
-                      <span className={`text-sm font-bold w-24 text-right flex-shrink-0 ${
-                        tx.type === 'ingreso' ? 'text-emerald-400' : 'text-slate-200'
-                      }`}>
-                        {result.currency === 'USD' ? '$' : 'S/'} {fmt(tx.amount)}
-                      </span>
-
-                      {isDup && <span className="text-amber-400 text-xs">Duplicado</span>}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Botones de acción */}
-          <div className="flex items-center justify-between pt-2">
-            <button
-              onClick={() => { setResult(null); setTransactions([]) }}
-              className="flex items-center gap-2 text-slate-400 hover:text-slate-200 text-sm"
-            >
-              <X className="w-4 h-4" /> Cancelar y subir otro
-            </button>
-            <div className="flex items-center gap-3">
-              <p className="text-slate-400 text-sm">
-                Se importarán <span className="text-white font-semibold">{toImport.length}</span> transacciones
+          {done && (
+            <div className="px-4 py-3 rounded-xl" style={{background:'rgba(34,197,94,0.1)',border:'1px solid rgba(34,197,94,0.3)'}}>
+              <p className="text-sm font-semibold text-green-400">
+                ✅ {done.inserted} transacciones insertadas · {done.skipped} ya existían
               </p>
-              <button
-                onClick={confirmImport}
-                disabled={confirming || toImport.length === 0}
-                className="flex items-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-white font-semibold rounded-xl transition-colors"
-              >
-                {confirming ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Importando...</>
-                ) : (
-                  <><Check className="w-4 h-4" /> Confirmar importación</>
-                )}
+              <button onClick={()=>{setFiles([]);setResults([]);setDone(null)}} className="mt-2 text-xs text-green-400 underline">
+                Cargar más archivos
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Historial */}
-      {showHistory && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-            <h3 className="text-white font-semibold text-sm">Historial de importaciones</h3>
-            <button onClick={() => setShowHistory(false)} className="text-slate-500 hover:text-slate-300">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          {history.length === 0 ? (
-            <p className="text-slate-500 text-sm text-center py-8">No hay importaciones previas</p>
-          ) : (
-            <div className="divide-y divide-slate-800">
-              {history.map(imp => (
-                <div key={imp.id} className="flex items-center gap-4 px-5 py-3">
-                  <FileText className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-slate-200 text-sm font-medium truncate">{imp.filename}</p>
-                    <p className="text-slate-500 text-xs">{imp.bank} · {imp.period}</p>
-                  </div>
-                  <div className="text-right text-xs">
-                    <p className="text-slate-300">{imp.total_inserted} importadas</p>
-                    <p className="text-slate-500">{new Date(imp.created_at).toLocaleDateString('es-PE')}</p>
-                  </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    imp.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
-                    imp.status === 'error' ? 'bg-rose-500/20 text-rose-400' :
-                    'bg-slate-700 text-slate-400'
-                  }`}>
-                    {imp.status === 'completed' ? '✓' : imp.status}
-                  </span>
-                </div>
-              ))}
             </div>
           )}
         </div>
