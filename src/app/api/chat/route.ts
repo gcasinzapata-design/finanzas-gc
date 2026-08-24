@@ -1,7 +1,7 @@
 // @ts-nocheck
-// Copiloto IA Financiero — GPT-level financial advisor for Peru
-// Claude Haiku → Gemini Flash fallback
+// Copiloto IA Financiero — Claude Haiku → Gemini Flash (free) fallback
 import { NextRequest, NextResponse } from 'next/server'
+import { callAI } from '@/lib/ai'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/authOptions'
 import { createServiceClient } from '@/lib/supabase'
