@@ -29,7 +29,7 @@ const TX_ICON = {
   'Transferencias Propias':'↔️',Otros:'📦',
 }
 const MONTHS = [
-  {v:'',l:'Todos los meses'},{v:'2026-05',l:'Mayo 2026'},{v:'2026-04',l:'Abril 2026'},
+  {v:'',l:'Todos los meses'},{v:'2026-08',l:'Agosto 2026'},{v:'2026-07',l:'Julio 2026'},{v:'2026-06',l:'Junio 2026'},{v:'2026-05',l:'Mayo 2026'},{v:'2026-04',l:'Abril 2026'},
   {v:'2026-03',l:'Marzo 2026'},{v:'2026-02',l:'Febrero 2026'},{v:'2026-01',l:'Enero 2026'},
 ]
 const ALL_CATS = [
@@ -237,7 +237,7 @@ function SummaryBar({ transactions }) {
 function TransactionsInner() {
   const [allTx, setAllTx] = useState([])
   const [loading, setLoading] = useState(true)
-  const [monthFilter, setMonthFilter] = useState('2026-05')
+  const [monthFilter, setMonthFilter] = useState('2026-08')
   const [typeFilter, setTypeFilter] = useState('all') // all|gasto|ingreso|transferencia
   const [bankFilter, setBankFilter] = useState('all')
   const [catFilter, setCatFilter] = useState('')

@@ -30,8 +30,8 @@ export async function GET(req) {
   const isGasto = (t) => t.type === 'gasto' && t.category !== 'Ahorro'
   const amtPen = (t) => Number(t.amount_pen || t.amount || 0)
 
-  // Build months from EECC data only, max up to 2026-05 (no future months)
-  const TODAY_MONTH = '2026-05'
+  // Use actual current month as cap
+  const TODAY_MONTH = new Date().toISOString().slice(0, 7)
   const ALL_MONTHS = [...new Set(rows.map(t => t.date?.slice(0, 7)).filter(Boolean))]
     .filter(m => m <= TODAY_MONTH)
     .sort()
