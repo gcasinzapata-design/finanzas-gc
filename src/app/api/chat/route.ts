@@ -107,38 +107,13 @@ export async function POST(req: NextRequest) {
   const chatMsgs = messages.map(m=>({ role:m.role==='assistant'?'assistant':'user', content:m.content }))
 
   // Try Claude Haiku
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (anthropicKey) {
-    try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':anthropicKey,'anthropic-version':'2023-06-01'},
-        body:JSON.stringify({model:'claude-haiku-4-5',max_tokens:1200,system:systemPrompt,messages:chatMsgs}),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.content?.[0]?.text) return NextResponse.json({reply:data.content[0].text,model:'Claude Haiku'})
-      }
-    } catch(e) { console.log('Anthropic:', e.message) }
-  }
-
-  // Fallback: Gemini Flash
-  const gKey = process.env.GEMINI_API_KEY || 'AIzaSyDM12m8wsZQSs1jrnFDOu_n1e49lBc6T-8'
+  // Use unified AI caller (Claude Haiku → Gemini Flash fallback)
   try {
-    const gemContents = chatMsgs.map((m,i)=>({
-      role:m.role==='assistant'?'model':'user',
-      parts:[{text:i===0&&m.role==='user'?`${systemPrompt}\n\n---\n${m.content}`:m.content}]
-    }))
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${gKey}`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({contents:gemContents,generationConfig:{maxOutputTokens:1200,temperature:0.7}})
-    })
-    if (res.ok) {
-      const data = await res.json()
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
-      if (reply) return NextResponse.json({reply,model:'Gemini Flash'})
-    }
-  } catch(e) { console.log('Gemini:', e.message) }
-
-  return NextResponse.json({reply:'⚠️ Copiloto no disponible. Agrega ANTHROPIC_API_KEY en Vercel → Settings → Environment Variables.'})
+    const userMsg = chatMsgs.map(m => `${m.role === 'user' ? 'Usuario' : 'Copiloto'}: ${m.content}`).join('\n')
+    const reply = await callAI(userMsg, systemPrompt, 1200)
+    const model = reply ? 'Gemini Flash / Claude' : 'unknown'
+    return NextResponse.json({ reply, model })
+  } catch (e: any) {
+    return NextResponse.json({ reply: `⚠️ ${e.message || 'Error del Copiloto IA. Revisa las API keys en Vercel.'}` })
+  }
 }
