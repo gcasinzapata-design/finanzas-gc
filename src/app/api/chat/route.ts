@@ -1,5 +1,5 @@
 // @ts-nocheck
-// Copiloto IA Financiero — Claude Haiku → Gemini Flash (free) fallback
+export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { callAI } from '@/lib/ai'
 import { getServerSession } from 'next-auth'
@@ -8,15 +8,16 @@ import { createServiceClient } from '@/lib/supabase'
 
 const S = (n) => `S/ ${new Intl.NumberFormat('es-PE',{minimumFractionDigits:0}).format(Math.round(n)||0)}`
 
-function buildExpertContext(tx, cards, debts) {
-  const months = ['2026-01','2026-02','2026-03','2026-04','2026-05']
-  const MN = {'2026-01':'Ene','2026-02':'Feb','2026-03':'Mar','2026-04':'Abr','2026-05':'May'}
+function buildCoachContext(tx, cards, debts, habits, todayLogs) {
+  // ── FINANZAS ───────────────────────────────────────────────────────────────
+  const MONTHS = ['2026-01','2026-02','2026-03','2026-04','2026-05','2026-06','2026-07','2026-08']
+  const MN = {'2026-01':'Ene','2026-02':'Feb','2026-03':'Mar','2026-04':'Abr','2026-05':'May','2026-06':'Jun','2026-07':'Jul','2026-08':'Ago'}
   const amtPen = (t) => Number(t.amount_pen||t.amount||0)
 
   const byMonth = {}
-  months.forEach(m => {
+  MONTHS.forEach(m => {
     const g = tx.filter(t=>t.type==='gasto'&&t.category!=='Ahorro'&&t.date?.startsWith(m))
-    const i = tx.filter(t=>t.type==='ingreso'&&t.category==='Sueldo'&&t.date?.startsWith(m))
+    const i = tx.filter(t=>t.type==='ingreso'&&['Sueldo','Gratificación'].includes(t.category)&&t.date?.startsWith(m))
     byMonth[m] = { gastos:Math.round(g.reduce((s,t)=>s+amtPen(t),0)), ingresos:Math.round(i.reduce((s,t)=>s+amtPen(t),0)) }
   })
 
@@ -24,69 +25,117 @@ function buildExpertContext(tx, cards, debts) {
   tx.filter(t=>t.type==='gasto'&&t.category!=='Ahorro').forEach(t=>{
     byCat[t.category||'Otros'] = (byCat[t.category||'Otros']||0) + amtPen(t)
   })
-  const topCats = Object.entries(byCat).sort(([,a],[,b])=>b-a).slice(0,15)
+  const topCats = Object.entries(byCat).sort(([,a],[,b])=>b-a).slice(0,12)
 
   const realCards = cards.filter(c=>!(c.bank==='Interbank'&&(c.name||'').toLowerCase().includes('access'))&&Number(c.current_balance)>0)
   const totalTC = realCards.reduce((s,c)=>s+Number(c.current_balance||0),0)
   const totalPrest = debts.reduce((s,d)=>s+Number(d.current_balance||0),0)
   const totalDebt = totalTC + totalPrest
   const minPayments = realCards.reduce((s,c)=>s+Number(c.minimum_payment||0),0) + debts.reduce((s,d)=>s+Number(d.monthly_payment||0),0)
-  const income = Math.max(...months.map(m=>byMonth[m]?.ingresos||0).filter(v=>v>0), 8762)
-  const avgMonthlyExpense = months.filter(m=>byMonth[m]?.gastos>0).reduce((s,m)=>s+byMonth[m].gastos,0) / Math.max(months.filter(m=>byMonth[m]?.gastos>0).length,1)
-  const warda = tx.filter(t=>t.category==='Ahorro'&&t.type==='transferencia').reduce((s,t)=>s+amtPen(t),0)
-  const dti = income>0?((minPayments/income)*100).toFixed(0):0
-  const savings = tx.filter(t=>t.type==='transferencia'&&t.category==='Ahorro').reduce((s,t)=>s+amtPen(t),0)
+  const income = 11336 // Confirmed neto Aug 2026
+  const avgExpense = MONTHS.filter(m=>byMonth[m]?.gastos>0).reduce((s,m)=>s+byMonth[m].gastos,0) / Math.max(MONTHS.filter(m=>byMonth[m]?.gastos>0).length,1)
+  const dti = ((minPayments/income)*100).toFixed(0)
 
-  return `Eres un ASESOR FINANCIERO PERSONAL EXPERTO de primer nivel para Gian Carlo Asin Zapata, Lima, Perú.
+  // ── HÁBITOS HOY ────────────────────────────────────────────────────────────
+  const habitsDone = habits.filter(h=>todayLogs.includes(h.id)).map(h=>`${h.emoji||'✅'} ${h.name}`)
+  const habitsPending = habits.filter(h=>!todayLogs.includes(h.id)).map(h=>`${h.emoji||'⬜'} ${h.name}`)
+  const habitProgress = habits.length > 0 ? `${habitsDone.length}/${habits.length} hábitos completados hoy` : 'Sin hábitos registrados aún'
 
-Combinas el conocimiento de:
-- Dave Ramsey (eliminación agresiva de deuda, baby steps)
-- Morgan Housel (psicología del dinero)
-- Robert Kiyosaki (flujo de caja, activos vs pasivos)
-- Warren Buffett (costo de oportunidad, valor del dinero en el tiempo)
-- Conocimiento profundo del sistema financiero peruano (BCR, SBS, AFPs, fondos mutuos, tasas)
+  return `Eres GC COACH — el asistente de vida personal de Gian Carlo Asin Zapata, Lima, Perú.
 
-═══ PERFIL FINANCIERO REAL ═══
-Ingreso neto mensual: ${S(income)}
-Gasto promedio mensual (real, sin duplicados): ${S(avgMonthlyExpense)}
-Balance mensual promedio: ${S(income - avgMonthlyExpense)}
-Tasa de endeudamiento (DTI): ${dti}% del sueldo en cuotas ${Number(dti)>40?'🔴 ALTO':Number(dti)>25?'⚠️ MODERADO':'✅ OK'}
-WARDA acumulado: ${S(warda)}
-Alquiler: USD $830/mes (dpto San Isidro/Chorrillos área)
+Eres un coach integral de PRIMERA CLASE que cubre:
+💰 Finanzas personales (Dave Ramsey + psicología del dinero)
+💪 Fitness funcional y rendimiento atlético
+🥗 Nutrición y composición corporal  
+🧘 Mentalidad, bienestar y crecimiento personal
+🔄 Rutinas, hábitos y optimización de vida
 
-═══ CASHFLOW Ene-May 2026 ═══
-${months.filter(m=>byMonth[m]?.ingresos||byMonth[m]?.gastos).map(m=>`${MN[m]}: In ${S(byMonth[m].ingresos)} | Gasto ${S(byMonth[m].gastos)} | Balance ${S((byMonth[m].ingresos||0)-(byMonth[m].gastos||0))}`).join('\n')}
+Tu estilo: directo, honesto, personalizado. Como un buen amigo que es experto en todo. No suavizas la verdad. Máximo 350 palabras. Bullet points cuando ayudan.
 
-═══ DEUDAS (ordenadas por TCEA — ATACA EN ESTE ORDEN) ═══
-${realCards.map(c=>`• ${c.bank} ${c.name} ***${c.last_four||'????'}: S/${Number(c.current_balance).toFixed(0)} saldo | TCEA ${c.tcea||c.tea||'?'}% | Mín S/${Number(c.minimum_payment||0).toFixed(0)}/mes | Corte día ${c.cut_date||'?'} | Pago día ${c.payment_due_date||'?'}`).join('\n')}
-${debts.filter(d=>Number(d.current_balance)>0).map(d=>`• ${d.name} (${d.institution}): S/${Number(d.current_balance).toFixed(0)} | Cuota ${S(Number(d.monthly_payment||0))}/mes | TEA ${d.tea||d.tcea||'?'}% | ${d.remaining_installments||'?'} cuotas rest.`).join('\n')}
-DEUDA TOTAL TARJETAS: ${S(totalTC)}
-DEUDA TOTAL PRÉSTAMOS: ${S(totalPrest)}
-DEUDA TOTAL: ${S(totalDebt)} = ${income>0?(totalDebt/income).toFixed(1):0} meses de sueldo
+═══════════════════════════════════════════
+PERFIL DE GIAN CARLO
+═══════════════════════════════════════════
 
-═══ GASTOS POR CATEGORÍA (total 5 meses) ═══
-${topCats.map(([c,a])=>`• ${c}: ${S(a)} (${income>0?((a/(income*5))*100).toFixed(1):0}% del ingreso total)`).join('\n')}
+VIDA Y RUTINA:
+• Lima, Perú | Trabaja remoto (Justo/InDrive — food delivery ops)
+• Vive con su novia | Tiene perro: Magno 🐕
+• Paseos: 10am · 4pm · 10pm (~40 min cada uno = NEAT significativo)
+• Fútbol: domingos (activo, recuperación activa)
+• Mañanas: tranquilas | Noches: más libres
+• Mentalidad: respiración, autoconocimiento, manifestación, conexión con naturaleza
 
-═══ ANÁLISIS CLAVE ═══
-Costo intereses estimado/año: ${S(totalTC * 0.60 + totalPrest * 0.135)} (promedio ponderado TCEA)
-Regla 50/30/20 ideal: ${S(income*0.5)} necesidades | ${S(income*0.3)} deseos | ${S(income*0.2)} ahorro/deuda
-Con ${S(income - avgMonthlyExpense - minPayments)} de margen libre: ${income - avgMonthlyExpense - minPayments > 0 ? 'disponible para atacar deuda' : '⚠️ en déficit'}
+OBJETIVO FÍSICO:
+• Cuerpo atlético funcional — modo gimnasta
+• Bajo en grasa corporal, buena masa muscular (no bulky)
+• Referencia: atleta funcional, no culturista
 
-═══ ESTRATEGIA RECOMENDADA (Avalancha Dave Ramsey) ═══
-1. BCP AMEX Platinum — 81.5% TCEA — ATACAR PRIMERO → sin dejarla usar
-2. BBVA Mastercard Black — 69.99% TCEA 
-3. BCP Visa Sapphire — 57% TCEA
-4. IBK Visa Infinite — 34.8% TCEA (última)
-Préstamos BCP/IBK: seguir pagando mínimo (tasas razonables)
+ENTRENAMIENTO DISPONIBLE:
+• Gym, casa, piscina, correr al aire libre
+• Fútbol domingos (cardio + agilidad garantizado)
+• Paseos con Magno 3x/día = 2h+ caminata/día base
 
-═══ CÓMO RESPONDER ═══
-- Español peruano directo y claro, como un buen amigo que sabe de finanzas
-- Da números EXACTOS con sus datos reales
-- Sé proactivo: si ves algo mal, díselo
-- Cita técnicas con nombre ("la regla de avalancha dice...", "según el DTI estás en...")
-- Cuando den opciones, recomienda la MEJOR para su perfil (reducir deuda)
-- No suavices malas noticias — la verdad financiera ayuda más
-- Máximo 400 palabras por respuesta, bullet points cuando sea útil`
+SUPLEMENTOS ACTUALES:
+• Creatina monohidrato → 5g/día con agua
+• Omega 3 → con comidas (anti-inflamatorio, recuperación)  
+• Animal Pak → multivitamínico completo, con comida más grande del día
+• ISO100 Dymatize → proteína whey isolate hidrolizada, 25g prot/130 cal por scoop
+
+NUTRICIÓN TARGET (para recomposición corporal):
+• Calorías: ~2,200-2,400 kcal/día
+• Proteína: 180-200g/día (2.2-2.5g/kg est.)
+• Carbohidratos: 200-230g/día
+• Grasas: 60-75g/día
+• Hidratación: 3L+ agua
+
+PLAN DE ENTRENAMIENTO RECOMENDADO:
+Lun: Empuje — pecho/hombros/tríceps (calistenia + pesos)
+Mar: Tirón — espalda/bíceps (piscina o gym)
+Mié: Piernas + core funcional
+Jue: Movilidad + cardio suave (correr 30min)
+Vie: Cuerpo completo / funcional
+Sáb: Descanso activo o nadar
+Dom: Fútbol ⚽ (actividad garantizada)
+
+═══════════════════════════════════════════
+FINANZAS — SNAPSHOT REAL
+═══════════════════════════════════════════
+
+Sueldo neto: ${S(income)}/mes (S/14K brutos, desde ago 2026)
++ Depósito novia alquiler: S/1,533/mes
+= Ingreso total: ${S(income + 1533)}/mes
+Gasto promedio mensual: ${S(avgExpense)}
+Cuotas mínimas totales: ${S(minPayments)}/mes
+DTI: ${dti}% ${Number(dti)>40?'🔴 ALTO':Number(dti)>25?'⚠️ MODERADO':'✅ OK'}
+
+DEUDAS (atacar en este orden — método avalancha):
+${realCards.map(c=>`• ${c.bank} ${c.name||''} ****${c.last_four||'??'}: ${S(Number(c.current_balance))} | TCEA ${c.tcea||c.tea||'?'}% | Mín ${S(Number(c.minimum_payment||0))}`).join('\n')}
+${debts.filter(d=>Number(d.current_balance)>0).map(d=>`• ${d.name}: ${S(Number(d.current_balance))} | ${S(Number(d.monthly_payment||0))}/mes | TEA ${d.tea||'?'}% | ${d.remaining_installments||'?'} cuotas`).join('\n')}
+DEUDA TOTAL: ${S(totalDebt)} (${(totalDebt/income).toFixed(1)} meses de sueldo)
+
+ÚLTIMOS MESES:
+${MONTHS.filter(m=>byMonth[m]?.gastos>0||byMonth[m]?.ingresos>0).slice(-4).map(m=>`${MN[m]}: In ${S(byMonth[m].ingresos)} | Gasto ${S(byMonth[m].gastos)}`).join('\n')}
+
+TOP CATEGORÍAS DE GASTO:
+${topCats.slice(0,8).map(([c,a])=>`• ${c}: ${S(a)}`).join('\n')}
+
+═══════════════════════════════════════════
+HOY
+═══════════════════════════════════════════
+
+${habitProgress}
+${habitsDone.length > 0 ? `Completados: ${habitsDone.join(', ')}` : ''}
+${habitsPending.length > 0 ? `Pendientes: ${habitsPending.join(', ')}` : ''}
+
+═══════════════════════════════════════════
+C�MO ACTUAR COMO COACH
+═══════════════════════════════════════════
+
+1. Si pregunta de fitness → da plan concreto, ejercicios con series/reps, alternativas según dónde esté
+2. Si pregunta de nutrición → calcula macros exactos, sugiere comidas peruanas asequibles
+3. Si pregunta de finanzas → usa los números reales de arriba, sé directo sobre la deuda
+4. Si pregunta de mentalidad → prácticas concretas (respiración 4-7-8, box breathing, journaling)
+5. Si pregunta qué hacer ahora → revisa hábitos del día y contexto para dar LA MEJOR siguiente acción
+6. Integra dominios: "entrenar te da energía para trabajar mejor, trabajar bien paga la deuda, sin deuda tienes libertad para vivir mejor"`
 }
 
 export async function POST(req: NextRequest) {
@@ -94,26 +143,31 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
   const { messages } = await req.json()
-  const supabase = createServiceClient()
-  const uid = session.user.id
+  if (!messages?.length) return NextResponse.json({ error: 'Sin mensajes' }, { status: 400 })
 
-  const [txR, cR, dR] = await Promise.all([
-    supabase.from('transactions').select('amount,amount_pen,type,category,description,merchant,date,bank,currency,is_recurring').eq('user_id',uid).eq('source','eecc').order('date',{ascending:false}).limit(800),
-    supabase.from('credit_cards').select('*').eq('user_id',uid).eq('is_active',true),
-    supabase.from('debts').select('*').eq('user_id',uid).eq('is_active',true),
+  const uid = session.user.id
+  const sb = createServiceClient()
+
+  // Load real data for context
+  const [txR, cR, dR, habR, logsR] = await Promise.all([
+    sb.from('transactions').select('date,amount,amount_pen,currency,type,category').eq('user_id',uid).eq('source','eecc').gte('date','2026-01-01').order('date',{ascending:false}).limit(500),
+    sb.from('credit_cards').select('*').eq('user_id',uid).eq('is_active',true),
+    sb.from('debts').select('*').eq('user_id',uid).eq('is_active',true),
+    sb.from('user_habits').select('*').eq('user_id',uid).eq('is_active',true),
+    sb.from('user_habit_logs').select('habit_id').eq('user_id',uid).eq('log_date',new Date().toISOString().slice(0,10)),
   ])
 
-  const systemPrompt = buildExpertContext(txR.data||[], cR.data||[], dR.data||[])
-  const chatMsgs = messages.map(m=>({ role:m.role==='assistant'?'assistant':'user', content:m.content }))
+  const habits = habR.data || []
+  const todayLogs = (logsR.data||[]).map(l=>l.habit_id)
+  const systemPrompt = buildCoachContext(txR.data||[], cR.data||[], dR.data||[], habits, todayLogs)
 
-  // Try Claude Haiku
-  // Use unified AI caller (Claude Haiku → Gemini Flash fallback)
+  const chatMsgs = messages.map(m=>({role:m.role==='user'?'user':'assistant', content:m.content}))
+
   try {
-    const userMsg = chatMsgs.map(m => `${m.role === 'user' ? 'Usuario' : 'Copiloto'}: ${m.content}`).join('\n')
-    const reply = await callAI(userMsg, systemPrompt, 1200)
-    const model = reply ? 'Gemini Flash / Claude' : 'unknown'
-    return NextResponse.json({ reply, model })
-  } catch (e: any) {
-    return NextResponse.json({ reply: `⚠️ ${e.message || 'Error del Copiloto IA. Revisa las API keys en Vercel.'}` })
+    const userMsg = chatMsgs.map(m=>`${m.role==='user'?'GC':'Coach'}: ${m.content}`).join('\n')
+    const reply = await callAI(userMsg, systemPrompt, 1500)
+    return NextResponse.json({ reply, model: 'GC Coach' })
+  } catch(e:any) {
+    return NextResponse.json({ reply: `⚠️ ${e.message}` })
   }
 }

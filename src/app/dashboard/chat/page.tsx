@@ -80,7 +80,7 @@ export default function ChatPage() {
             <Sparkles size={18} className="text-white"/>
           </div>
           <div>
-            <h1 className="font-bold text-gray-900 dark:text-white">Copiloto Financiero IA</h1>
+            <h1 className="font-bold text-gray-900 dark:text-white">GC Coach — Tu asistente de vida</h1>
             <p className="text-xs text-gray-500 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"/>
               Powered by Claude · Datos EECC actualizados
@@ -102,7 +102,7 @@ export default function ChatPage() {
             <div className="bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-2xl p-5 border border-blue-100 dark:border-blue-800">
               <p className="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-1">👋 Hola Gian Carlo</p>
               <p className="text-sm text-blue-700 dark:text-blue-400">
-                Soy tu copiloto financiero. Tengo acceso a todos tus movimientos EECC (Feb–Abr 2026), 
+                Soy tu coach personal. Tengo contexto de tus finanzas, entrenamientos, nutrición y hábitos. 
                 tus tarjetas y préstamos activos. Puedo ayudarte a diseñar estrategias de pago, 
                 analizar gastos y proyectar tu situación financiera.
               </p>
